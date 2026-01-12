@@ -26,22 +26,23 @@ import { toast } from '../lib/toast';
 import { CargoModal } from '../components/configuracoes/CargoModal';
 import { FeriadoModal } from '../components/configuracoes/FeriadoModal';
 
-interface Cargo {
+type TabKey = 'regras' | 'cargos' | 'feriados' | 'permissoes';
+
+// OBS: no Supabase, colunas NUMERIC geralmente chegam como string no JS.
+type Cargo = {
   id: string;
   nome: string;
   descricao: string | null;
-  valor_hora_padrao: number;
+  valor_hora_padrao: number; // normalizado
   ativo: boolean;
-}
+};
 
-interface Feriado {
+type Feriado = {
   id: string;
   nome: string;
   data: string; // YYYY-MM-DD
   tipo: string; // nacional | municipal | interno | etc
-}
-
-type TabKey = 'regras' | 'cargos' | 'feriados' | 'permissoes';
+};
 
 type SistemaConfig = {
   // Período
@@ -102,20 +103,42 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
+function toNumber(v: unknown, fallback: number) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  const n = Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toBool(v: unknown, fallback: boolean) {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v === 'boolean') return v;
+  const s = String(v).toLowerCase().trim();
+  if (s === 'true' || s === '1' || s === 't' || s === 'yes') return true;
+  if (s === 'false' || s === '0' || s === 'f' || s === 'no') return false;
+  return fallback;
+}
+
 function formatEUR(v: number) {
   return new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(v);
 }
 
+function safeDateForLocale(dateISO: string) {
+  // Evita “voltar um dia” por timezone (usa meio-dia local).
+  // YYYY-MM-DD -> YYYY-MM-DDT12:00:00
+  return new Date(`${dateISO}T12:00:00`);
+}
+
 function formatShortDatePT(dateISO: string) {
-  const d = new Date(dateISO);
+  const d = safeDateForLocale(dateISO);
   return d.toLocaleDateString('pt-PT', { day: '2-digit', month: 'long' });
 }
 
 function yearOf(dateISO: string) {
-  return new Date(dateISO).getFullYear();
+  return safeDateForLocale(dateISO).getFullYear();
 }
 function monthOf(dateISO: string) {
-  return new Date(dateISO).getMonth() + 1;
+  return safeDateForLocale(dateISO).getMonth() + 1;
 }
 
 function toggleClass(on: boolean) {
@@ -125,8 +148,56 @@ function toggleClass(on: boolean) {
 }
 
 function deepEqual(a: any, b: any) {
-  // suficiente aqui (obj plano, sem funções)
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function normalizeCargo(row: any): Cargo {
+  return {
+    id: String(row.id),
+    nome: String(row.nome ?? ''),
+    descricao: row.descricao ?? null,
+    valor_hora_padrao: toNumber(row.valor_hora_padrao, 0),
+    ativo: toBool(row.ativo, true),
+  };
+}
+
+function normalizeFeriado(row: any): Feriado {
+  return {
+    id: String(row.id),
+    nome: String(row.nome ?? ''),
+    data: String(row.data ?? ''),
+    tipo: String(row.tipo ?? 'nacional'),
+  };
+}
+
+function normalizeConfigRow(row: any): SistemaConfig {
+  return {
+    dia_fecho_periodo: clamp(toNumber(row.dia_fecho_periodo, DEFAULT_CONFIG.dia_fecho_periodo), 1, 31),
+    timezone: String(row.timezone ?? DEFAULT_CONFIG.timezone),
+
+    horas_dia: Math.max(1, toNumber(row.horas_dia, DEFAULT_CONFIG.horas_dia)),
+    hora_entrada: String(row.hora_entrada ?? DEFAULT_CONFIG.hora_entrada),
+    hora_saida: String(row.hora_saida ?? DEFAULT_CONFIG.hora_saida),
+    pausa_minutos: Math.max(0, toNumber(row.pausa_minutos, DEFAULT_CONFIG.pausa_minutos)),
+    descontar_pausa: toBool(row.descontar_pausa, DEFAULT_CONFIG.descontar_pausa),
+
+    tolerancia_minutos: Math.max(0, toNumber(row.tolerancia_minutos, DEFAULT_CONFIG.tolerancia_minutos)),
+    arredondamento_minutos: Math.max(0, toNumber(row.arredondamento_minutos, DEFAULT_CONFIG.arredondamento_minutos)),
+    dia_sem_registo_gera_falta: toBool(row.dia_sem_registo_gera_falta, DEFAULT_CONFIG.dia_sem_registo_gera_falta),
+
+    multiplicador_hora_extra: Math.max(1, toNumber(row.multiplicador_hora_extra, DEFAULT_CONFIG.multiplicador_hora_extra)),
+    exigir_aprovacao_extra: toBool(row.exigir_aprovacao_extra, DEFAULT_CONFIG.exigir_aprovacao_extra),
+
+    dias_aviso_documentos: Math.max(1, toNumber(row.dias_aviso_documentos, DEFAULT_CONFIG.dias_aviso_documentos)),
+    documento_vencido_bloqueia_presenca: toBool(
+      row.documento_vencido_bloqueia_presenca,
+      DEFAULT_CONFIG.documento_vencido_bloqueia_presenca
+    ),
+    documento_vencido_bloqueia_alocacao: toBool(
+      row.documento_vencido_bloqueia_alocacao,
+      DEFAULT_CONFIG.documento_vencido_bloqueia_alocacao
+    ),
+  };
 }
 
 export function Configuracoes() {
@@ -160,34 +231,43 @@ export function Configuracoes() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadData = async () => {
     setLoading(true);
 
-    const [cargosRes, feriadosRes] = await Promise.all([
+    const [cargosRes, feriadosRes, cfgRes] = await Promise.all([
       supabase.from('cargos').select('*').order('nome'),
       supabase.from('feriados').select('*').order('data'),
+      supabase.from('configuracoes_sistema').select('*').eq('id', CONFIG_ID).maybeSingle(),
     ]);
 
-    if (cargosRes.error) console.error(cargosRes.error);
-    if (feriadosRes.error) console.error(feriadosRes.error);
+    if (cargosRes.error) {
+      console.error(cargosRes.error);
+      toast.error('Sem acesso para listar cargos (permissões/RLS).');
+    }
+    if (feriadosRes.error) {
+      console.error(feriadosRes.error);
+      toast.error('Sem acesso para listar feriados (permissões/RLS).');
+    }
 
-    if (cargosRes.data) setCargos(cargosRes.data as Cargo[]);
-    if (feriadosRes.data) setFeriados(feriadosRes.data as Feriado[]);
+    if (cargosRes.data) setCargos((cargosRes.data as any[]).map(normalizeCargo));
+    if (feriadosRes.data) setFeriados((feriadosRes.data as any[]).map(normalizeFeriado));
 
-    const cfgRes = await supabase
-      .from('configuracoes_sistema')
-      .select('*')
-      .eq('id', CONFIG_ID)
-      .maybeSingle();
-
-    if (!cfgRes.error && cfgRes.data) {
-      const merged: SistemaConfig = { ...DEFAULT_CONFIG, ...(cfgRes.data as Partial<SistemaConfig>) };
+    if (cfgRes.error) {
+      // Não assume causa: só reporta o que aconteceu
+      console.error(cfgRes.error);
+      // se não existir registro ainda, cfgRes.error pode vir null com data null; aqui é erro real
+      toast.error('Não foi possível carregar configurações (permissões/RLS).');
+      setCfg(DEFAULT_CONFIG);
+      setCfgBase(DEFAULT_CONFIG);
+    } else if (cfgRes.data) {
+      const merged = normalizeConfigRow(cfgRes.data);
       setCfg(merged);
       setCfgBase(merged);
     } else {
-      // se não existir (ou falhou), mantém defaults como base
+      // registro não existe -> fica no default
       setCfg(DEFAULT_CONFIG);
       setCfgBase(DEFAULT_CONFIG);
     }
@@ -256,8 +336,7 @@ export function Configuracoes() {
   const feriadoAnosOptions = useMemo(() => {
     const years = new Set<number>(feriados.map((f) => yearOf(f.data)));
     years.add(today.getFullYear());
-    const list = Array.from(years).sort((a, b) => b - a);
-    return list;
+    return Array.from(years).sort((a, b) => b - a);
   }, [feriados, today]);
 
   const feriadosFiltered = useMemo(() => {
@@ -334,26 +413,49 @@ export function Configuracoes() {
   const saveConfig = async () => {
     setSavingCfg(true);
     try {
+      // payload alinhado com schema real da tabela configuracoes_sistema
       const payload = {
         id: CONFIG_ID,
-        ...cfg,
+        dia_fecho_periodo: clamp(cfg.dia_fecho_periodo, 1, 31),
+        timezone: cfg.timezone,
+
+        horas_dia: cfg.horas_dia,
+        hora_entrada: cfg.hora_entrada,
+        hora_saida: cfg.hora_saida,
+        pausa_minutos: cfg.pausa_minutos,
+        descontar_pausa: cfg.descontar_pausa,
+
+        tolerancia_minutos: cfg.tolerancia_minutos,
+        arredondamento_minutos: cfg.arredondamento_minutos,
+        dia_sem_registo_gera_falta: cfg.dia_sem_registo_gera_falta,
+
+        multiplicador_hora_extra: cfg.multiplicador_hora_extra,
+        exigir_aprovacao_extra: cfg.exigir_aprovacao_extra,
+
+        dias_aviso_documentos: cfg.dias_aviso_documentos,
+        documento_vencido_bloqueia_presenca: cfg.documento_vencido_bloqueia_presenca,
+        documento_vencido_bloqueia_alocacao: cfg.documento_vencido_bloqueia_alocacao,
+
+        // updated_at no banco já tem default + trigger, mas não atrapalha enviar
         updated_at: new Date().toISOString(),
       };
 
       const res = await supabase
         .from('configuracoes_sistema')
         .upsert(payload, { onConflict: 'id' })
-        .select()
+        .select('*')
         .maybeSingle();
 
       if (res.error) {
         console.error(res.error);
-        toast.error('Não foi possível guardar as configurações');
-      } else {
+        toast.error('Não foi possível guardar as configurações (permissões/RLS).');
+      } else if (res.data) {
         toast.success('Configurações guardadas com sucesso');
-        const merged: SistemaConfig = { ...DEFAULT_CONFIG, ...(res.data as Partial<SistemaConfig>) };
+        const merged = normalizeConfigRow(res.data);
         setCfg(merged);
         setCfgBase(merged);
+      } else {
+        toast.error('Não foi possível confirmar o retorno do upsert.');
       }
     } catch (e) {
       console.error(e);
@@ -368,7 +470,7 @@ export function Configuracoes() {
     const res = await supabase.from('cargos').update({ ativo: next }).eq('id', cargo.id);
     if (res.error) {
       console.error(res.error);
-      toast.error('Erro ao atualizar cargo');
+      toast.error('Erro ao atualizar cargo (permissões/RLS).');
       return;
     }
     toast.success(`Cargo ${next ? 'ativado' : 'desativado'}`);
@@ -497,9 +599,7 @@ export function Configuracoes() {
                   min={1}
                   max={31}
                   value={String(cfg.dia_fecho_periodo)}
-                  onChange={(e) =>
-                    setCfgField('dia_fecho_periodo', clamp(Number(e.target.value || 22), 1, 31))
-                  }
+                  onChange={(e) => setCfgField('dia_fecho_periodo', clamp(toNumber(e.target.value, 22), 1, 31))}
                 />
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Ex.: 22 = o período conta do dia 1 ao dia 22.
@@ -523,8 +623,8 @@ export function Configuracoes() {
               <div className="flex items-start gap-2">
                 <Info size={16} className="text-slate-600 dark:text-slate-300 mt-0.5" />
                 <div className="text-xs text-slate-600 dark:text-slate-200">
-                  Recomendação: bloquear “fecho de período” se houver dias pendentes (sem presença/falta) para evitar
-                  ajustes manuais no Financeiro.
+                  Recomenda-se bloquear fecho de período se houver dias pendentes (sem presença/falta), para evitar ajustes
+                  manuais no Financeiro.
                 </div>
               </div>
             </div>
@@ -550,7 +650,7 @@ export function Configuracoes() {
                   min={1}
                   step="0.5"
                   value={String(cfg.horas_dia)}
-                  onChange={(e) => setCfgField('horas_dia', Math.max(1, Number(e.target.value || 8)))}
+                  onChange={(e) => setCfgField('horas_dia', Math.max(1, toNumber(e.target.value, 8)))}
                 />
               </div>
 
@@ -561,7 +661,7 @@ export function Configuracoes() {
                   min={0}
                   step="5"
                   value={String(cfg.pausa_minutos)}
-                  onChange={(e) => setCfgField('pausa_minutos', Math.max(0, Number(e.target.value || 60)))}
+                  onChange={(e) => setCfgField('pausa_minutos', Math.max(0, toNumber(e.target.value, 60)))}
                 />
               </div>
 
@@ -608,7 +708,7 @@ export function Configuracoes() {
                   min={0}
                   step="1"
                   value={String(cfg.tolerancia_minutos)}
-                  onChange={(e) => setCfgField('tolerancia_minutos', Math.max(0, Number(e.target.value || 10)))}
+                  onChange={(e) => setCfgField('tolerancia_minutos', Math.max(0, toNumber(e.target.value, 10)))}
                 />
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Atrasos até este valor podem ser ignorados.
@@ -622,7 +722,7 @@ export function Configuracoes() {
                   min={0}
                   step="5"
                   value={String(cfg.arredondamento_minutos)}
-                  onChange={(e) => setCfgField('arredondamento_minutos', Math.max(0, Number(e.target.value || 15)))}
+                  onChange={(e) => setCfgField('arredondamento_minutos', Math.max(0, toNumber(e.target.value, 15)))}
                 />
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   Ex.: 15 min para padronizar apuramento.
@@ -667,24 +767,28 @@ export function Configuracoes() {
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Multiplicador hora extra</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                  Multiplicador hora extra
+                </label>
                 <Input
                   type="number"
                   min={1}
                   step="0.1"
                   value={String(cfg.multiplicador_hora_extra)}
-                  onChange={(e) => setCfgField('multiplicador_hora_extra', Math.max(1, Number(e.target.value || 1.5)))}
+                  onChange={(e) => setCfgField('multiplicador_hora_extra', Math.max(1, toNumber(e.target.value, 1.5)))}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Aviso de documentos (dias)</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                  Aviso de documentos (dias)
+                </label>
                 <Input
                   type="number"
                   min={1}
                   step="1"
                   value={String(cfg.dias_aviso_documentos)}
-                  onChange={(e) => setCfgField('dias_aviso_documentos', Math.max(1, Number(e.target.value || 30)))}
+                  onChange={(e) => setCfgField('dias_aviso_documentos', Math.max(1, toNumber(e.target.value, 30)))}
                 />
               </div>
             </div>
@@ -720,7 +824,7 @@ export function Configuracoes() {
 
             <div className="mt-4 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
               <div className="text-xs text-slate-600 dark:text-slate-200">
-                Se vocês quiserem “compliance forte”, o mínimo é: doc vencido bloquear alocação e exigir aprovação de horas extra.
+                Compliance mínimo: doc vencido bloquear alocação e exigir aprovação de horas extra.
               </div>
             </div>
           </Card>
@@ -828,9 +932,7 @@ export function Configuracoes() {
                       {formatEUR(Number(cargo.valor_hora_padrao || 0))}/h
                     </td>
                     <td className="py-3 px-4">
-                      <Badge variant={cargo.ativo ? 'success' : 'default'}>
-                        {cargo.ativo ? 'Ativo' : 'Inativo'}
-                      </Badge>
+                      <Badge variant={cargo.ativo ? 'success' : 'default'}>{cargo.ativo ? 'Ativo' : 'Inativo'}</Badge>
                     </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-2">
@@ -1095,12 +1197,12 @@ export function Configuracoes() {
           <div>
             <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Nota operacional</div>
             <div className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-              Configurações devem mudar regras (cálculo, bloqueios, padrões e permissões). Dados do dia a dia ficam em Obras,
+              Configurações mudam regras (cálculo, bloqueios, padrões e permissões). Dados operacionais ficam em Obras,
               Presenças, Financeiro e Documentos.
             </div>
             <div className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-              Se a tabela <span className="font-semibold">configuracoes_sistema</span> não existir, “Guardar alterações”
-              vai falhar até você criar. O UI já está pronto para quando ligar o backend.
+              Se a tabela <span className="font-semibold">configuracoes_sistema</span> estiver com RLS restrito, “Guardar
+              alterações” vai falhar até o user ter permissão (owner/admin).
             </div>
           </div>
         </div>

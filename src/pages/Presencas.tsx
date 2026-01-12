@@ -216,7 +216,7 @@ export function Presencas() {
   const [tipoRegistro, setTipoRegistro] = useState<'presenca' | 'falta'>('presenca');
   const [horaEntrada, setHoraEntrada] = useState('08:00');
   const [horaSaida, setHoraSaida] = useState('17:00');
-  const [justificacaoFalta, setJustificacaoFalta] = useState('');
+  const [justificacaoFalta, setJustificacaoFalta] = useState(''); // opcional
 
   // Registrar: amarração com existentes (obra+data)
   const [existentesByColab, setExistentesByColab] = useState<Record<string, PresencaExistente>>({});
@@ -228,7 +228,7 @@ export function Presencas() {
   const [editStatus, setEditStatus] = useState<RegistrarStatus>('presenca');
   const [editEntrada, setEditEntrada] = useState('08:00');
   const [editSaida, setEditSaida] = useState('17:00');
-  const [editJustificacao, setEditJustificacao] = useState('');
+  const [editJustificacao, setEditJustificacao] = useState(''); // opcional
   const [editSaving, setEditSaving] = useState(false);
 
   // Histórico
@@ -240,27 +240,31 @@ export function Presencas() {
   const [metasByColab, setMetasByColab] = useState<Record<string, number>>({});
 
   const { anoPeriodo, mesPeriodo1, mesPeriodo0, metaMesDefault, rangeInicio, rangeFim } = useMemo(() => {
-    const [a, m] = String(periodo).split('-');
-    const ano = safeNumber(a, anoNow);
-    const mes1 = safeNumber(m, mesNow0 + 1);
-    const mes0 = Math.max(0, Math.min(11, mes1 - 1));
-    const metaDefault = calcularMetaMes(mes0, ano);
+  const [a, m] = String(periodo).split('-');
+  const ano = safeNumber(a, anoNow);
+  const mes1 = safeNumber(m, mesNow0 + 1);
+  const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
-    const primeiroDia = new Date(ano, mes0, 1).toISOString().split('T')[0];
-    const ultimoDia = new Date(ano, mes0, 22).toISOString().split('T')[0];
+  // Meta continua até dia 22 (como você queria)
+  const metaDefault = calcularMetaMes(mes0, ano);
 
-    return {
-      anoPeriodo: ano,
-      mesPeriodo1: mes1,
-      mesPeriodo0: mes0,
-      metaMesDefault: metaDefault,
-      rangeInicio: primeiroDia,
-      rangeFim: ultimoDia,
-    };
-  }, [periodo, anoNow, mesNow0]);
+  // Resumo passa a pegar o mês inteiro
+  const primeiroDia = new Date(ano, mes0, 1).toISOString().split('T')[0];
+  const ultimoDiaMes = new Date(ano, mes0 + 1, 0).toISOString().split('T')[0]; // último dia do mês
+
+  return {
+    anoPeriodo: ano,
+    mesPeriodo1: mes1,
+    mesPeriodo0: mes0,
+    metaMesDefault: metaDefault,
+    rangeInicio: primeiroDia,
+    rangeFim: ultimoDiaMes,
+  };
+}, [periodo, anoNow, mesNow0]);
 
   useEffect(() => {
     loadObras();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -540,7 +544,7 @@ export function Presencas() {
           status,
           entrada,
           saida,
-          justificacao: falta?.observacao ?? null,
+          justificacao: (falta?.observacao ?? null) as any,
           total_horas: safeNumber(p.total_horas, 0),
         };
       });
@@ -575,9 +579,10 @@ export function Presencas() {
 
       if (filtroMes) {
         const [ano, mes] = filtroMes.split('-');
-        const primeiroDia = `${ano}-${mes}-01`;
-        const dia23 = `${ano}-${mes}-23`; // exclusivo: cobre até 22
-        query = query.gte('data', primeiroDia).lt('data', dia23);
+       const primeiroDia = `${ano}-${mes}-01`;
+const nextMonth = new Date(Number(ano), Number(mes) - 1 + 1, 1).toISOString().split('T')[0]; // 1º dia do mês seguinte
+query = query.gte('data', primeiroDia).lt('data', nextMonth);
+
       }
 
       const { data, error } = await query;
@@ -612,7 +617,7 @@ export function Presencas() {
           saida: saidaTs ? new Date(saidaTs).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : null,
           total_horas: safeNumber(p.total_horas, 0),
           faltou,
-          justificacao_falta: falta?.observacao ?? null,
+          justificacao_falta: (falta?.observacao ?? null) as any,
         };
       });
 
@@ -659,7 +664,8 @@ export function Presencas() {
         presenca_dia_id: presencaDia.id,
         tipo: 'falta',
         momento: momentoFalta,
-        observacao: justificacao.trim(),
+        // opcional: se vazio, grava string vazia (não quebra se o campo for NOT NULL)
+        observacao: justificacao.trim() || '',
       },
     ]);
 
@@ -717,7 +723,6 @@ export function Presencas() {
     );
     if (!ok) return;
 
-    // apaga registos e depois o presencas_dia
     const { error: delReg } = await supabase.from('presencas_registos').delete().eq('presenca_dia_id', existente.presenca_dia_id);
     if (delReg) throw delReg;
 
@@ -732,7 +737,7 @@ export function Presencas() {
     setEditStatus(ex?.status ?? 'presenca');
     setEditEntrada(ex?.entrada ? isoToHHMM(ex.entrada) : horaEntrada);
     setEditSaida(ex?.saida ? isoToHHMM(ex.saida) : horaSaida);
-    setEditJustificacao(ex?.justificacao ?? '');
+    setEditJustificacao((ex?.justificacao ?? '') as any);
     setEditOpen(true);
   };
 
@@ -748,10 +753,7 @@ export function Presencas() {
       return;
     }
 
-    if (editStatus === 'falta' && !editJustificacao.trim()) {
-      toast.error('Informe a justificação da falta');
-      return;
-    }
+    // Justificação é opcional — não valida aqui
 
     setEditSaving(true);
     try {
@@ -779,6 +781,12 @@ export function Presencas() {
 
   const handleClearEdit = async () => {
     if (!editColab) return;
+
+    const existente = existentesByColab[editColab.id];
+    if (!existente) {
+      toast.error('Não existe registo neste dia para remover');
+      return;
+    }
 
     setEditSaving(true);
     try {
@@ -812,10 +820,7 @@ export function Presencas() {
       return;
     }
 
-    if (tipoRegistro === 'falta' && !justificacaoFalta.trim()) {
-      toast.error('Informe a justificação da falta');
-      return;
-    }
+    // Justificação é opcional — não bloqueia aqui
 
     if (tipoRegistro === 'presenca') {
       const entrada = new Date(`${selectedDate}T${horaEntrada}:00`);
@@ -1414,7 +1419,9 @@ export function Presencas() {
 
             {tipoRegistro === 'falta' && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Justificação *</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                  Justificação (opcional)
+                </label>
                 <Input
                   value={justificacaoFalta}
                   onChange={(e) => setJustificacaoFalta(e.target.value)}
@@ -1493,9 +1500,9 @@ export function Presencas() {
                               </div>
                             )}
 
-                            {jaRegistrado && existente.status === 'falta' && existente.justificacao && (
+                            {jaRegistrado && existente.status === 'falta' && (
                               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
-                                Motivo: {existente.justificacao}
+                                Motivo: {existente.justificacao ? existente.justificacao : '—'}
                               </div>
                             )}
                           </div>
@@ -1519,20 +1526,19 @@ export function Presencas() {
 
                             <Badge variant={colab.status === 'ativo' ? 'success' : 'default'}>{colab.status}</Badge>
 
-                            {jaRegistrado && (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                onClick={(e: any) => {
-                                  e.stopPropagation();
-                                  openEditModal(colab);
-                                }}
-                                className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                              >
-                                <Pencil size={14} className="mr-1" />
-                                Editar
-                              </Button>
-                            )}
+                            {/* Individual: sempre disponível (Marcar/Editar) */}
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={(e: any) => {
+                                e.stopPropagation();
+                                openEditModal(colab);
+                              }}
+                              className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                            >
+                              <Pencil size={14} className="mr-1" />
+                              {jaRegistrado ? 'Editar' : 'Marcar'}
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -1681,10 +1687,10 @@ export function Presencas() {
         </Card>
       )}
 
-      {/* Modal Editar Registo */}
+      {/* Modal Editar/Marcar Registo */}
       <SimpleModal
         open={editOpen}
-        title={editColab ? `Editar registo — ${editColab.nome_completo}` : 'Editar registo'}
+        title={editColab ? `${existentesByColab[editColab.id] ? 'Editar registo' : 'Marcar registo'} — ${editColab.nome_completo}` : 'Registo'}
         onClose={() => {
           if (editSaving) return;
           setEditOpen(false);
@@ -1707,15 +1713,15 @@ export function Presencas() {
             <Button
               variant="secondary"
               onClick={handleClearEdit}
-              disabled={editSaving || !editColab}
+              disabled={editSaving || !editColab || !existentesByColab[editColab.id]}
               className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
             >
               <Trash2 size={16} className="mr-2" />
               Remover do dia
             </Button>
 
-            <Button onClick={handleSaveEdit} disabled={editSaving || !editColab}>
-              {editSaving ? 'Salvando...' : 'Salvar alterações'}
+            <Button onClick={handleSaveEdit} disabled={editSaving || !editColab || selectedDateIsSunday || !selectedObra}>
+              {editSaving ? 'Salvando...' : 'Salvar'}
             </Button>
           </>
         }
@@ -1728,7 +1734,7 @@ export function Presencas() {
               <div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Obra</div>
                 <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {obras.find((o) => o.id === selectedObra)?.nome ?? '—'}
+                  {selectedObra ? obras.find((o) => o.id === selectedObra)?.nome ?? '—' : 'Selecione uma obra antes'}
                 </div>
               </div>
               <div>
@@ -1744,6 +1750,12 @@ export function Presencas() {
               </div>
             </div>
 
+            {!selectedObra && (
+              <div className="text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-lg p-3">
+                Selecione uma obra no ecrã “Registrar” para gravar este registo.
+              </div>
+            )}
+
             <div>
               <div className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Tipo</div>
               <div className="flex gap-2">
@@ -1751,7 +1763,7 @@ export function Presencas() {
                   variant={editStatus === 'presenca' ? 'primary' : 'secondary'}
                   onClick={() => setEditStatus('presenca')}
                   className="flex-1"
-                  disabled={editSaving}
+                  disabled={editSaving || !selectedObra}
                 >
                   <CheckCircle size={16} className="mr-2" />
                   Presença
@@ -1760,7 +1772,7 @@ export function Presencas() {
                   variant={editStatus === 'falta' ? 'primary' : 'secondary'}
                   onClick={() => setEditStatus('falta')}
                   className="flex-1"
-                  disabled={editSaving}
+                  disabled={editSaving || !selectedObra}
                 >
                   <UserX size={16} className="mr-2" />
                   Falta
@@ -1800,7 +1812,9 @@ export function Presencas() {
               </div>
             ) : (
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Justificação *</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                  Justificação (opcional)
+                </label>
                 <Input
                   value={editJustificacao}
                   onChange={(e) => setEditJustificacao(e.target.value)}
@@ -1827,7 +1841,7 @@ export function Presencas() {
                   </div>
                 ) : (
                   <div className="mt-2 text-sm text-slate-700 dark:text-slate-200">
-                    Motivo: {existentesByColab[editColab.id].justificacao ?? '—'}
+                    Motivo: {existentesByColab[editColab.id].justificacao ? existentesByColab[editColab.id].justificacao : '—'}
                   </div>
                 )}
               </div>

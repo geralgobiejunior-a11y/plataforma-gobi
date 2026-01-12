@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
 import { Textarea } from '../ui/Textarea';
@@ -19,6 +19,12 @@ interface CargoModalProps {
   } | null;
 }
 
+function parseMoney(input: string) {
+  // aceita "10,5" ou "10.5"
+  const n = Number(String(input).replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
 export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProps) {
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -27,11 +33,13 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     if (cargo) {
-      setNome(cargo.nome);
-      setDescricao(cargo.descricao || '');
-      setValorHora(String(cargo.valor_hora_padrao || ''));
-      setAtivo(cargo.ativo);
+      setNome(cargo.nome ?? '');
+      setDescricao(cargo.descricao ?? '');
+      setValorHora(String(cargo.valor_hora_padrao ?? ''));
+      setAtivo(!!cargo.ativo);
     } else {
       setNome('');
       setDescricao('');
@@ -40,15 +48,20 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
     }
   }, [cargo, isOpen]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (saving) return;
 
-    if (!nome.trim()) {
+    const nomeFinal = nome.trim();
+    const descricaoFinal = descricao.trim();
+    const valor = parseMoney(valorHora);
+
+    if (!nomeFinal) {
       toast.error('Nome do cargo é obrigatório');
       return;
     }
 
-    if (!valorHora || Number(valorHora) <= 0) {
+    if (!Number.isFinite(valor) || valor <= 0) {
       toast.error('Valor/hora deve ser maior que zero');
       return;
     }
@@ -57,25 +70,18 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
 
     try {
       const payload = {
-        nome: nome.trim(),
-        descricao: descricao.trim() || null,
-        valor_hora_padrao: Number(valorHora),
+        nome: nomeFinal,
+        descricao: descricaoFinal || null,
+        valor_hora_padrao: valor,
         ativo,
       };
 
-      if (cargo) {
-        const { error } = await supabase
-          .from('cargos')
-          .update(payload)
-          .eq('id', cargo.id);
-
+      if (cargo?.id) {
+        const { error } = await supabase.from('cargos').update(payload).eq('id', cargo.id);
         if (error) throw error;
         toast.success('Cargo atualizado com sucesso');
       } else {
-        const { error } = await supabase
-          .from('cargos')
-          .insert([payload]);
-
+        const { error } = await supabase.from('cargos').insert([payload]);
         if (error) throw error;
         toast.success('Cargo criado com sucesso');
       }
@@ -84,11 +90,8 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
       onClose();
     } catch (error: any) {
       console.error('Erro ao salvar cargo:', error);
-      if (error.code === '23505') {
-        toast.error('Já existe um cargo com este nome');
-      } else {
-        toast.error('Erro ao salvar cargo');
-      }
+      if (error?.code === '23505') toast.error('Já existe um cargo com este nome');
+      else toast.error('Erro ao salvar cargo');
     } finally {
       setSaving(false);
     }
@@ -98,7 +101,7 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
     <Modal isOpen={isOpen} onClose={onClose} title={cargo ? 'Editar Cargo' : 'Novo Cargo'}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
             Nome do Cargo *
           </label>
           <Input
@@ -106,11 +109,12 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
             onChange={(e) => setNome(e.target.value)}
             placeholder="Ex: Pedreiro, Eletricista..."
             required
+            disabled={saving}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
             Descrição
           </label>
           <Textarea
@@ -118,11 +122,12 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
             onChange={(e) => setDescricao(e.target.value)}
             placeholder="Descrição opcional do cargo..."
             rows={3}
+            disabled={saving}
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
             Valor/Hora Padrão (€) *
           </label>
           <Input
@@ -133,8 +138,9 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
             onChange={(e) => setValorHora(e.target.value)}
             placeholder="0.00"
             required
+            disabled={saving}
           />
-          <div className="text-xs text-slate-500 mt-1">
+          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Este valor será usado como base para novos colaboradores deste cargo
           </div>
         </div>
@@ -146,13 +152,14 @@ export function CargoModal({ isOpen, onClose, onSuccess, cargo }: CargoModalProp
             checked={ativo}
             onChange={(e) => setAtivo(e.target.checked)}
             className="rounded border-slate-300 text-[#0B4F8A] focus:ring-[#0B4F8A]"
+            disabled={saving}
           />
-          <label htmlFor="cargo-ativo" className="text-sm text-slate-700">
+          <label htmlFor="cargo-ativo" className="text-sm text-slate-700 dark:text-slate-200">
             Cargo ativo (disponível para seleção)
           </label>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
+        <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
