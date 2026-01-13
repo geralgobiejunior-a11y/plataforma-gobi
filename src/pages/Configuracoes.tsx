@@ -521,7 +521,7 @@ export function Configuracoes() {
                 <SettingsIcon size={18} className="text-slate-700 dark:text-slate-200" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Configurações</h2>
+                
                 <p className="text-sm text-slate-500 dark:text-slate-400">
                   Regras do sistema, cargos, feriados e políticas operacionais.
                 </p>

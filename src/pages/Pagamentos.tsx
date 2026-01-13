@@ -526,15 +526,20 @@ export default function Pagamentos() {
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Folha de Pagamento</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado),
-            com horas, faltas e total a pagar.
-          </p>
-          <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-            Período atual: <span className="font-semibold">{periodoLabel}</span>
-          </div>
-        </div>
+  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+    Resumo do período
+  </div>
+
+  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+    Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado),
+    com horas, faltas e total a pagar.
+  </p>
+
+  <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+    Período atual: <span className="font-semibold">{periodoLabel}</span>
+  </div>
+</div>
+
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 justify-end">
           <Button

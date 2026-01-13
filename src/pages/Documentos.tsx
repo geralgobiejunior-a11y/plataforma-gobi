@@ -1647,12 +1647,15 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
     <div className="space-y-6">
       <Card className={`p-5 ${cardBase}`}>
         <div className="flex flex-col lg:flex-row gap-4 lg:items-center lg:justify-between">
-          <div>
-            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">Documentos</div>
-            <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Gestão por entidade: escolha o colaborador/empresa, depois visualize e gere os documentos.
-            </div>
-          </div>
+         <div>
+  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+    Gestão de documentos
+  </div>
+  <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+    Gestão por entidade: escolha o colaborador/empresa, depois visualize e gere os documentos.
+  </div>
+</div>
+
 
           <div className="flex items-center gap-2 justify-end">
             {scope === 'empresa' && (

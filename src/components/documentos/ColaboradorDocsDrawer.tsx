@@ -217,14 +217,26 @@ export function ColaboradorDocsDrawer(props: {
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-full sm:w-[640px] bg-white dark:bg-slate-950 z-50 border-l border-slate-200 dark:border-slate-800 shadow-xl">
+
+      {/* Drawer: mobile-first */}
+      <div
+        className="
+          fixed inset-0 sm:inset-y-0 sm:right-0 sm:left-auto
+          h-full w-full sm:w-[640px]
+          bg-white dark:bg-slate-950
+          z-50 border-l border-slate-200 dark:border-slate-800 shadow-xl
+          flex flex-col
+          rounded-t-3xl sm:rounded-none
+          overflow-x-hidden
+        "
+      >
         {/* Header */}
-        <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3 flex-shrink-0">
           <div className="min-w-0 w-full">
             <div className="text-xs text-slate-500 dark:text-slate-400">Documentos do colaborador</div>
 
             <div className="mt-2 flex items-center gap-3 min-w-0">
-              <div className="h-12 w-12 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center">
+              <div className="h-12 w-12 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center flex-shrink-0">
                 {colaborador.foto_url ? (
                   <img src={colaborador.foto_url} alt={colaborador.nome_completo} className="h-full w-full object-cover" />
                 ) : (
@@ -232,26 +244,27 @@ export function ColaboradorDocsDrawer(props: {
                 )}
               </div>
 
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 truncate">
                   {colaborador.nome_completo}
                 </div>
                 <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
-                  {colaborador.categoria ? <span>{colaborador.categoria}</span> : null}
+                  {colaborador.categoria ? <span className="truncate max-w-[220px] sm:max-w-none">{colaborador.categoria}</span> : null}
                   {colaborador.status ? <span className="capitalize">{colaborador.status}</span> : null}
                 </div>
 
-                <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+                <div className="mt-2 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3 text-xs text-slate-600 dark:text-slate-300">
                   {colaborador.telefone ? (
                     <span className="inline-flex items-center gap-2">
                       <Phone size={14} className="text-slate-400" />
-                      {colaborador.telefone}
+                      <span className="break-words">{colaborador.telefone}</span>
                     </span>
                   ) : null}
+
                   {colaborador.email ? (
                     <span className="inline-flex items-center gap-2 min-w-0">
                       <Mail size={14} className="text-slate-400" />
-                      <span className="truncate max-w-[320px]">{colaborador.email}</span>
+                      <span className="truncate max-w-[220px] sm:max-w-[320px]">{colaborador.email}</span>
                     </span>
                   ) : null}
                 </div>
@@ -260,7 +273,7 @@ export function ColaboradorDocsDrawer(props: {
           </div>
 
           <button
-            className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-950/40"
+            className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-950/40 flex-shrink-0"
             onClick={onClose}
             aria-label="Fechar"
           >
@@ -269,22 +282,23 @@ export function ColaboradorDocsDrawer(props: {
         </div>
 
         {/* Body */}
-        <div className="p-5 space-y-4 overflow-y-auto h-[calc(100%-88px)]">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
           {/* Resumo */}
           <Card className={`p-4 ${cardBase}`}>
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="min-w-0">
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resumo</div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                   {resumo.total} documento(s) associado(s) a este colaborador
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" onClick={onRefresh}>
+              {/* Mobile: botões em coluna / full width */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <Button variant="secondary" onClick={onRefresh} className="w-full sm:w-auto justify-center">
                   Atualizar
                 </Button>
-                <Button onClick={onNovoDocumento}>
+                <Button onClick={onNovoDocumento} className="w-full sm:w-auto justify-center">
                   <FileText size={16} className="mr-2" />
                   Novo documento
                 </Button>
@@ -312,11 +326,11 @@ export function ColaboradorDocsDrawer(props: {
 
           {/* Lista */}
           <Card className={`p-4 ${cardBase}`}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Documentos</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-2">
+              <div className="text-xs text-slate-500 dark:text-slate-400 inline-flex items-center gap-2 min-w-0">
                 <Hash size={14} className="text-slate-400 dark:text-slate-500" />
-                {colaborador.id}
+                <span className="truncate max-w-[260px] sm:max-w-none">{colaborador.id}</span>
               </div>
             </div>
 
@@ -342,22 +356,24 @@ export function ColaboradorDocsDrawer(props: {
                       : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/30 dark:text-slate-200 dark:border-slate-800';
 
                   const tipoNome = doc.tipos_documento?.nome || doc.tipo || '—';
+                  const isUploading = uploadingDocId === doc.id;
 
                   return (
                     <div
                       key={doc.id}
                       className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40 transition"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      {/* Mobile-first: conteúdo e ações em coluna */}
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                         <div className="min-w-0">
                           <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
                             {doc.nome || '—'}
                           </div>
 
-                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
-                            <span className="inline-flex items-center gap-2">
+                          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-3">
+                            <span className="inline-flex items-center gap-2 min-w-0">
                               <FileText size={14} className="text-slate-400" />
-                              {tipoNome}
+                              <span className="truncate">{tipoNome}</span>
                             </span>
 
                             <span className="inline-flex items-center gap-2">
@@ -391,38 +407,54 @@ export function ColaboradorDocsDrawer(props: {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {doc.arquivo_url ? (
-                            <Button variant="secondary" onClick={() => openArquivo(String(doc.arquivo_url))} title="Abrir ficheiro">
-                              <ExternalLink size={16} className="mr-2" />
-                              Abrir
-                            </Button>
-                          ) : (
+                        {/* Ações: grid no mobile para não estourar */}
+                        <div className="w-full sm:w-auto shrink-0">
+                          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+                            {doc.arquivo_url ? (
+                              <>
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => openArquivo(String(doc.arquivo_url))}
+                                  title="Abrir ficheiro"
+                                  className="w-full justify-center"
+                                >
+                                  <ExternalLink size={16} className="mr-2" />
+                                  Abrir
+                                </Button>
+
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => pickFileFor(doc)}
+                                  disabled={isUploading}
+                                  title="Substituir ficheiro"
+                                  className="w-full justify-center"
+                                >
+                                  <UploadCloud size={16} className="mr-2" />
+                                  {isUploading ? 'A enviar…' : 'Substituir'}
+                                </Button>
+                              </>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                onClick={() => pickFileFor(doc)}
+                                disabled={isUploading}
+                                title="Enviar ficheiro"
+                                className="w-full justify-center col-span-2 sm:col-span-1"
+                              >
+                                <UploadCloud size={16} className="mr-2" />
+                                {isUploading ? 'A enviar…' : 'Enviar'}
+                              </Button>
+                            )}
+
                             <Button
-                              variant="secondary"
-                              onClick={() => pickFileFor(doc)}
-                              disabled={uploadingDocId === doc.id}
-                              title="Enviar ficheiro"
+                              onClick={() => onEditarDocumento(doc)}
+                              title="Editar metadados"
+                              className="w-full justify-center col-span-2 sm:col-span-1"
                             >
-                              <UploadCloud size={16} className="mr-2" />
-                              {uploadingDocId === doc.id ? 'A enviar…' : 'Enviar'}
+                              <Edit3 size={16} className="mr-2" />
+                              Editar
                             </Button>
-                          )}
-
-                          <Button
-                            variant="secondary"
-                            onClick={() => pickFileFor(doc)}
-                            disabled={uploadingDocId === doc.id}
-                            title={doc.arquivo_url ? 'Substituir ficheiro' : 'Enviar ficheiro'}
-                          >
-                            <UploadCloud size={16} className="mr-2" />
-                            {doc.arquivo_url ? 'Substituir' : 'Enviar'}
-                          </Button>
-
-                          <Button onClick={() => onEditarDocumento(doc)} title="Editar metadados">
-                            <Edit3 size={16} className="mr-2" />
-                            Editar
-                          </Button>
+                          </div>
                         </div>
                       </div>
                     </div>

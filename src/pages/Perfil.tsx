@@ -12,21 +12,18 @@ import {
   Briefcase,
   Shield,
   Save,
-  Camera,
   AlertCircle,
   CheckCircle,
-  X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { toast } from '../lib/toast';
-import { ImageUploadWithCrop } from '../components/ui/ImageUploadWithCrop';
 
 interface UserProfile {
   user_id: string;
   nome: string | null;
-  foto_url: string | null;
+  foto_url: string | null; // mantém no tipo por compatibilidade com a tabela, mas não usamos na UI
   telefone: string | null;
   idioma: string | null;
   cargo: string | null;
@@ -50,7 +47,7 @@ const NIVEL_LABELS: Record<number, { label: string; description: string; variant
   },
   3: {
     label: 'Nível 3 - Administrador',
-    description: 'Acesso total ao sistema, incluindo gestão de utilizadores',
+    description: 'Acesso total ao sistema lembra gestão de utilizadores',
     variant: 'success',
   },
 };
@@ -62,58 +59,18 @@ type FormState = {
   cargo: string;
 };
 
-function SimpleModal({
-  isOpen,
-  title,
-  onClose,
-  children,
-}: {
-  isOpen: boolean;
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50">
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div
-          className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl
-                     dark:border-slate-800/70 dark:bg-slate-900"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="font-semibold text-slate-900 dark:text-slate-100">{title}</div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-9 w-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50
-                         dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800
-                         flex items-center justify-center"
-              aria-label="Fechar"
-            >
-              <X size={18} className="text-slate-700 dark:text-slate-200" />
-            </button>
-          </div>
-
-          <div className="p-5">{children}</div>
-        </div>
-      </div>
-    </div>
-  );
+function getInitials(name: string) {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return 'U';
+  const first = parts[0]?.[0] ?? 'U';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : '';
+  return (first + last).toUpperCase();
 }
 
 export function Perfil() {
   const { user } = useAuth();
 
-  // Tipagem flexível (não te trava caso teu contexto seja diferente)
+  // Tipagem flexível (não trava se teu contexto tiver shape diferente)
   const lang = useLanguage() as any;
   const t: (key: string) => string = lang?.t ?? ((s: string) => s);
   const currentLanguage: string = lang?.language ?? lang?.currentLanguage ?? 'pt-PT';
@@ -123,9 +80,6 @@ export function Perfil() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-
-  const [photoModalOpen, setPhotoModalOpen] = useState(false);
-  const [photoSaving, setPhotoSaving] = useState(false);
 
   const [formData, setFormData] = useState<FormState>({
     nome: '',
@@ -187,7 +141,7 @@ export function Perfil() {
         setFormData(nextForm);
         setInitialForm(nextForm);
 
-        // Se teu contexto permitir, aplica o idioma salvo no perfil
+        // aplica idioma salvo no perfil (se teu contexto permitir)
         if (setLanguage && data.idioma && data.idioma !== currentLanguage) {
           setLanguage(data.idioma);
         }
@@ -238,7 +192,7 @@ export function Perfil() {
     try {
       setSaving(true);
 
-      // Garante que salva o idioma “real” que está no contexto
+      // salva o idioma real do contexto
       const idiomaToSave = currentLanguage || formData.idioma || 'pt-PT';
 
       const updateData = {
@@ -261,31 +215,13 @@ export function Perfil() {
     }
   };
 
-  const handlePhotoSave = async (url: string) => {
-    if (!user) return;
+  const handleReset = () => {
+    if (!initialForm) return;
+    setFormData(initialForm);
 
-    try {
-      setPhotoSaving(true);
-
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          foto_url: url,
-          updated_by: user.id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', user.id);
-
-      if (error) throw error;
-
-      toast.success('Foto atualizada com sucesso!');
-      setPhotoModalOpen(false);
-      await loadProfile();
-    } catch (error) {
-      console.error('Error updating photo:', error);
-      toast.error('Erro ao atualizar foto');
-    } finally {
-      setPhotoSaving(false);
+    // mantém o LanguageContext consistente com o form (se suportado)
+    if (setLanguage && initialForm.idioma && initialForm.idioma !== currentLanguage) {
+      setLanguage(initialForm.idioma);
     }
   };
 
@@ -299,8 +235,8 @@ export function Perfil() {
           <div className="h-6 w-56 rounded bg-slate-100 dark:bg-slate-800/70" />
           <div className="mt-3 h-4 w-96 rounded bg-slate-100 dark:bg-slate-800/70" />
           <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-1 h-52 rounded-2xl bg-slate-100 dark:bg-slate-800/70" />
-            <div className="md:col-span-2 h-52 rounded-2xl bg-slate-100 dark:bg-slate-800/70" />
+            <div className="md:col-span-1 h-40 rounded-2xl bg-slate-100 dark:bg-slate-800/70" />
+            <div className="md:col-span-2 h-56 rounded-2xl bg-slate-100 dark:bg-slate-800/70" />
           </div>
         </div>
       </div>
@@ -327,6 +263,7 @@ export function Perfil() {
 
   const nivelInfo = NIVEL_LABELS[profile.nivel || 1];
   const displayName = (formData.nome || '').trim() || 'Utilizador';
+  const initials = getInitials(displayName);
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -338,15 +275,16 @@ export function Perfil() {
         <div className="h-2 bg-gradient-to-r from-[#0B4F8A] via-[#0B4F8A]/70 to-[#F5A623]" />
 
         <CardHeader>
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="flex items-start gap-3">
               <div
                 className="h-10 w-10 rounded-xl bg-[#0B4F8A]/10 flex items-center justify-center ring-1 ring-black/5
                            dark:bg-[#0B4F8A]/20 dark:ring-white/10"
               >
                 <User className="text-[#0B4F8A] dark:text-[#66A7E6]" size={20} />
               </div>
-              <div>
+
+              <div className="min-w-0">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
                   {t('profile.title') || 'Meu Perfil'}
                 </div>
@@ -356,48 +294,28 @@ export function Perfil() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge variant={profile.is_active ? 'success' : 'danger'}>
                 {profile.is_active ? 'Conta ativa' : 'Conta suspensa'}
               </Badge>
               <Badge variant={nivelInfo.variant}>{nivelInfo.label}</Badge>
+              {profile.role ? <Badge variant="default">{profile.role}</Badge> : null}
+              {isDirty ? <Badge variant="warning">Alterações pendentes</Badge> : <Badge variant="success">Atualizado</Badge>}
             </div>
           </div>
         </CardHeader>
 
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* ESQUERDA: RESUMO + FOTO */}
+            {/* ESQUERDA: RESUMO (sem foto) */}
             <div className="md:col-span-1">
               <div
                 className="rounded-2xl border border-slate-200 bg-slate-50 p-4
                            dark:border-slate-800/70 dark:bg-slate-900/40"
               >
                 <div className="flex items-start gap-4">
-                  <div className="relative">
-                    {profile.foto_url ? (
-                      <img
-                        src={profile.foto_url}
-                        alt={displayName}
-                        className="h-20 w-20 rounded-2xl object-cover ring-2 ring-white shadow-sm dark:ring-slate-900"
-                      />
-                    ) : (
-                      <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-[#0B4F8A] to-[#083B68] flex items-center justify-center ring-2 ring-white shadow-sm dark:ring-slate-900">
-                        <User className="text-white" size={34} />
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setPhotoModalOpen(true)}
-                      className="absolute -bottom-2 -right-2 h-9 w-9 rounded-xl bg-white border border-slate-200 shadow-sm
-                                 flex items-center justify-center hover:bg-slate-50
-                                 focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30
-                                 dark:bg-slate-900 dark:border-slate-700 dark:hover:bg-slate-800"
-                      aria-label="Alterar foto"
-                    >
-                      <Camera size={16} className="text-slate-700 dark:text-slate-200" />
-                    </button>
+                  <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-[#0B4F8A] to-[#083B68] flex items-center justify-center ring-2 ring-white shadow-sm dark:ring-slate-900">
+                    <span className="text-white font-semibold">{initials}</span>
                   </div>
 
                   <div className="min-w-0 flex-1">
@@ -406,30 +324,32 @@ export function Perfil() {
                     </div>
                     <div className="text-sm text-slate-500 dark:text-slate-400 truncate">{email}</div>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {profile.role ? <Badge variant="default">{profile.role}</Badge> : null}
-                      {isDirty ? (
-                        <Badge variant="warning">Alterações pendentes</Badge>
-                      ) : (
-                        <Badge variant="success">Tudo atualizado</Badge>
-                      )}
+                    <div className="mt-3 grid gap-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        {profile.is_active ? (
+                          <CheckCircle size={16} className="text-emerald-600 dark:text-emerald-400" />
+                        ) : (
+                          <AlertCircle size={16} className="text-red-600 dark:text-red-400" />
+                        )}
+                        <span>{profile.is_active ? 'Conta ativa' : 'Conta suspensa'}</span>
+                      </div>
+
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        O email é usado para login e não pode ser alterado aqui.
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4">
-                  <Button
-                    onClick={() => setPhotoModalOpen(true)}
-                    className="w-full bg-[#0B4F8A] hover:bg-[#083B68]"
-                  >
-                    <Camera size={16} className="mr-2" />
-                    Alterar foto
-                  </Button>
+                <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900/40">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Nível de acesso</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Badge variant={nivelInfo.variant}>{nivelInfo.label}</Badge>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                    {nivelInfo.description}
+                  </div>
                 </div>
-
-                <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                  PNG, JPG ou WEBP até 5MB.
-                </p>
               </div>
             </div>
 
@@ -469,7 +389,7 @@ export function Perfil() {
                     icon={<Phone size={16} />}
                   />
 
-                  {/* Idioma: UI + sincroniza com Supabase via currentLanguage */}
+                  {/* Idioma */}
                   <div className="w-full">
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
                       Idioma
@@ -499,13 +419,7 @@ export function Perfil() {
                 <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      if (!initialForm) return;
-                      setFormData(initialForm);
-                      if (setLanguage && initialForm.idioma && initialForm.idioma !== currentLanguage) {
-                        setLanguage(initialForm.idioma);
-                      }
-                    }}
+                    onClick={handleReset}
                     disabled={!isDirty || saving}
                     className="dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
                   >
@@ -528,7 +442,7 @@ export function Perfil() {
         </CardContent>
       </Card>
 
-      {/* CARD ACESSO */}
+      {/* CARD ACESSO (mantido, mais direto) */}
       <Card
         className="rounded-2xl border border-slate-200 bg-white shadow-sm
                     dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30"
@@ -613,43 +527,6 @@ export function Perfil() {
           </div>
         </CardContent>
       </Card>
-
-      {/* MODAL FOTO */}
-      <SimpleModal
-        isOpen={photoModalOpen}
-        title="Atualizar foto de perfil"
-        onClose={() => setPhotoModalOpen(false)}
-      >
-        <div className="space-y-4">
-          <div className="text-sm text-slate-600 dark:text-slate-300">
-            Selecione uma imagem e ajuste o recorte (quadrado).
-          </div>
-
-          <div
-            className="rounded-2xl border border-slate-200 bg-white p-4
-                       dark:border-slate-800 dark:bg-slate-900/40"
-          >
-            <ImageUploadWithCrop
-              bucket="perfis"
-              currentImageUrl={profile.foto_url || undefined}
-              onImageUploaded={handlePhotoSave}
-              label={photoSaving ? 'A processar...' : 'Selecionar imagem'}
-              icon={<Camera size={16} />}
-              aspectRatio={1}
-            />
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              variant="secondary"
-              onClick={() => setPhotoModalOpen(false)}
-              className="dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-            >
-              Fechar
-            </Button>
-          </div>
-        </div>
-      </SimpleModal>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+// src/components/obras/ObraDetailsDrawer.tsx
 import { useMemo, useState, useEffect } from 'react';
 import {
   X,
@@ -180,7 +181,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
     if (error) {
       console.error('Erro ao carregar presenças para stats:', error);
-      // não bloqueia a UI, apenas não mostra stats
       setWorkStats({});
       return;
     }
@@ -277,7 +277,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
   };
 
   const allocateOne = async (colaborador_id: string) => {
-    // Se existir alocação inativa anterior, reativa.
     const { data: existing, error: selErr } = await supabase
       .from('obras_colaboradores')
       .select('id, ativo')
@@ -368,7 +367,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
     if (error) {
       console.error('Erro ao remover colaborador da obra:', error);
 
-      // mensagem específica (porque você já viu esse caso)
       if (String(error.message || '').toLowerCase().includes('updated_at')) {
         toast.error('O banco está com trigger de updated_at mas a coluna não existe. Adicione updated_at em obras_colaboradores.');
       } else {
@@ -559,9 +557,18 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40 backdrop-blur-sm" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-full sm:w-[680px] bg-white z-50 shadow-2xl flex flex-col">
+
+      <div
+        className="
+          fixed inset-0 sm:inset-y-0 sm:right-0 sm:left-auto
+          h-full w-full sm:w-[680px]
+          bg-white z-50 shadow-2xl flex flex-col
+          rounded-t-3xl sm:rounded-none
+          overflow-x-hidden
+        "
+      >
         {/* Header */}
-        <div className="p-5 border-b border-slate-200 flex-shrink-0">
+        <div className="p-4 sm:p-5 border-b border-slate-200 flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="text-xs text-slate-500 uppercase tracking-wide font-medium">Obra</div>
@@ -593,19 +600,19 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
           </div>
 
           {/* Tabs */}
-          <div className="mt-4 flex gap-1 bg-slate-100 rounded-xl p-1">
+          <div className="mt-4 grid grid-cols-4 gap-1 bg-slate-100 rounded-xl p-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition flex items-center justify-center gap-2 ${
+                  className={`px-2 sm:px-3 py-2 rounded-lg text-[11px] sm:text-xs font-medium transition flex items-center justify-center gap-1 sm:gap-2 ${
                     activeTab === tab.id ? 'bg-white text-[#0B4F8A] shadow-sm' : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <Icon size={14} />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="truncate">{tab.label}</span>
                 </button>
               );
             })}
@@ -613,7 +620,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
           {activeTab === 'info' && (
             <>
               <Card className="p-4">
@@ -638,7 +645,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
               {obra.endereco && (
                 <Card className="p-4">
                   <div className="text-xs text-slate-500 mb-2">Endereço</div>
-                  <div className="text-sm text-slate-900">{obra.endereco}</div>
+                  <div className="text-sm text-slate-900 break-words">{obra.endereco}</div>
                 </Card>
               )}
 
@@ -669,7 +676,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
           {activeTab === 'equipa' && (
             <>
               {/* Top bar da Equipa */}
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-slate-900">Equipa</div>
                   <div className="flex flex-wrap gap-2 text-xs text-slate-600">
@@ -684,7 +691,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                   </div>
                 </div>
 
-                <Button onClick={openAssign} variant="secondary">
+                <Button onClick={openAssign} variant="secondary" className="w-full sm:w-auto justify-center">
                   <UserPlus size={16} className="mr-2" />
                   Alocar colaborador
                 </Button>
@@ -699,7 +706,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                   <Users size={48} className="mx-auto text-slate-300 mb-3" />
                   <p className="text-slate-500 text-sm">Nenhum colaborador alocado nesta obra</p>
                   <div className="mt-4">
-                    <Button onClick={openAssign}>
+                    <Button onClick={openAssign} className="w-full sm:w-auto">
                       <UserPlus size={16} className="mr-2" />
                       Alocar agora
                     </Button>
@@ -713,53 +720,62 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
                     return (
                       <Card key={colab.id} className="p-4 hover:shadow-md transition">
-                        <div className="flex items-start gap-3">
-                          {colab.foto_url ? (
-                            <img
-                              src={colab.foto_url}
-                              alt={colab.nome_completo}
-                              className="h-12 w-12 rounded-xl object-cover border border-slate-200"
-                            />
-                          ) : (
-                            <div className="h-12 w-12 rounded-xl bg-[#0B4F8A] flex items-center justify-center text-white font-semibold text-sm">
-                              {getInitials(colab.nome_completo)}
-                            </div>
-                          )}
-
-                          <div className="flex-1 min-w-0">
-                            <div className="font-semibold text-slate-900">{colab.nome_completo}</div>
-                            {colab.categoria && <div className="text-xs text-slate-500 mt-0.5">{colab.categoria}</div>}
-
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
-                              {colab.telefone && <span>📞 {colab.telefone}</span>}
-                              {colab.email && <span>✉️ {colab.email}</span>}
-                            </div>
-
-                            {colab.data_inicio && (
-                              <div className="mt-2 text-xs text-slate-500">Na obra desde {formatDatePT(colab.data_inicio)}</div>
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                          <div className="flex items-start gap-3">
+                            {colab.foto_url ? (
+                              <img
+                                src={colab.foto_url}
+                                alt={colab.nome_completo}
+                                className="h-12 w-12 rounded-xl object-cover border border-slate-200"
+                              />
+                            ) : (
+                              <div className="h-12 w-12 rounded-xl bg-[#0B4F8A] flex items-center justify-center text-white font-semibold text-sm">
+                                {getInitials(colab.nome_completo)}
+                              </div>
                             )}
 
-                            {/* badges horas / €/h / custo */}
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
-                                <Clock size={14} />
-                                Horas: <strong className="text-slate-900">{formatHM(st.minutos)}</strong>
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
-                                <Euro size={14} />
-                                €/h: <strong className="text-slate-900">{eur(vh)}</strong>
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
-                                <Euro size={14} />
-                                Custo: <strong className="text-slate-900">{eur(st.custo)}</strong>
-                              </span>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-semibold text-slate-900">{colab.nome_completo}</div>
+                              {colab.categoria && <div className="text-xs text-slate-500 mt-0.5">{colab.categoria}</div>}
+
+                              <div className="mt-2 flex flex-col sm:flex-row sm:flex-wrap gap-2 text-xs text-slate-600">
+                                {colab.telefone && <span className="break-words">📞 {colab.telefone}</span>}
+                                {colab.email && <span className="break-all">✉️ {colab.email}</span>}
+                              </div>
+
+                              {colab.data_inicio && (
+                                <div className="mt-2 text-xs text-slate-500">Na obra desde {formatDatePT(colab.data_inicio)}</div>
+                              )}
+
+                              {/* badges horas / €/h / custo */}
+                              <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                                  <Clock size={14} />
+                                  Horas: <strong className="text-slate-900">{formatHM(st.minutos)}</strong>
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                                  <Euro size={14} />
+                                  €/h: <strong className="text-slate-900">{eur(vh)}</strong>
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700">
+                                  <Euro size={14} />
+                                  Custo: <strong className="text-slate-900">{eur(st.custo)}</strong>
+                                </span>
+                              </div>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2">
-                            <Badge variant={String(colab.status).toLowerCase() === 'ativo' ? 'success' : 'default'}>{colab.status}</Badge>
+                          <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-2">
+                            <Badge variant={String(colab.status).toLowerCase() === 'ativo' ? 'success' : 'default'}>
+                              {colab.status}
+                            </Badge>
 
-                            <Button variant="ghost" size="sm" title="Desalocar da obra" onClick={() => askRemoveFromObra(colab)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Desalocar da obra"
+                              onClick={() => askRemoveFromObra(colab)}
+                            >
                               <Trash2 size={16} />
                             </Button>
                           </div>
@@ -774,8 +790,8 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
               {assignOpen && (
                 <>
                   <div className="fixed inset-0 bg-black/40 z-[60]" onClick={closeAssign} />
-                  <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-                    <div className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+                  <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4">
+                    <div className="w-full sm:max-w-3xl h-[92vh] sm:h-auto bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
                       <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-900">Alocar colaboradores</div>
@@ -790,83 +806,91 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                         </button>
                       </div>
 
-                      <div className="p-4">
-                        <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-                          <div className="relative w-full">
-                            <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                            <input
-                              value={assignSearch}
-                              onChange={(e) => setAssignSearch(e.target.value)}
-                              placeholder="Pesquisar por nome, categoria ou telefone…"
-                              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                                         placeholder:text-slate-400 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent"
-                            />
-                          </div>
-
-                          <div className="text-xs text-slate-500 whitespace-nowrap">
-                            Selecionados: <span className="font-semibold text-slate-900">{selectedIds.size}</span>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 max-h-[420px] overflow-y-auto space-y-2">
-                          {assignLoading ? (
-                            <div className="flex items-center justify-center py-10">
-                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A]" />
+                      <div className="p-4 flex-1 overflow-hidden">
+                        <div className="h-full flex flex-col">
+                          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                            <div className="relative w-full">
+                              <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                              <input
+                                value={assignSearch}
+                                onChange={(e) => setAssignSearch(e.target.value)}
+                                placeholder="Pesquisar por nome, categoria ou telefone…"
+                                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
+                                           placeholder:text-slate-400 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent"
+                              />
                             </div>
-                          ) : filteredAllColabs.length === 0 ? (
-                            <div className="text-center py-10 text-slate-500 text-sm">Nenhum colaborador encontrado.</div>
-                          ) : (
-                            filteredAllColabs.map((c) => {
-                              const alreadyIn = allocatedIds.has(c.id);
-                              const checked = selectedIds.has(c.id);
 
-                              return (
-                                <div
-                                  key={c.id}
-                                  className={`flex items-center gap-3 p-3 rounded-2xl border ${
-                                    alreadyIn ? 'border-slate-200 bg-slate-50 opacity-70' : 'border-slate-200 bg-white hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4"
-                                    disabled={alreadyIn}
-                                    checked={checked}
-                                    onChange={() => toggleSelect(c.id)}
-                                  />
+                            <div className="text-xs text-slate-500 whitespace-nowrap">
+                              Selecionados: <span className="font-semibold text-slate-900">{selectedIds.size}</span>
+                            </div>
+                          </div>
 
-                                  {c.foto_url ? (
-                                    <img
-                                      src={c.foto_url}
-                                      alt={c.nome_completo}
-                                      className="h-11 w-11 rounded-xl object-cover border border-slate-200"
+                          <div className="mt-4 flex-1 overflow-y-auto space-y-2">
+                            {assignLoading ? (
+                              <div className="flex items-center justify-center py-10">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A]" />
+                              </div>
+                            ) : filteredAllColabs.length === 0 ? (
+                              <div className="text-center py-10 text-slate-500 text-sm">Nenhum colaborador encontrado.</div>
+                            ) : (
+                              filteredAllColabs.map((c) => {
+                                const alreadyIn = allocatedIds.has(c.id);
+                                const checked = selectedIds.has(c.id);
+
+                                return (
+                                  <div
+                                    key={c.id}
+                                    className={`flex items-center gap-3 p-3 rounded-2xl border ${
+                                      alreadyIn
+                                        ? 'border-slate-200 bg-slate-50 opacity-70'
+                                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4"
+                                      disabled={alreadyIn}
+                                      checked={checked}
+                                      onChange={() => toggleSelect(c.id)}
                                     />
-                                  ) : (
-                                    <div className="h-11 w-11 rounded-xl bg-[#0B4F8A] flex items-center justify-center text-white font-semibold text-xs">
-                                      {getInitials(c.nome_completo)}
-                                    </div>
-                                  )}
 
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <div className="font-semibold text-slate-900 truncate">{c.nome_completo}</div>
-                                      {alreadyIn && (
-                                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
-                                          Já alocado
+                                    {c.foto_url ? (
+                                      <img
+                                        src={c.foto_url}
+                                        alt={c.nome_completo}
+                                        className="h-11 w-11 rounded-xl object-cover border border-slate-200"
+                                      />
+                                    ) : (
+                                      <div className="h-11 w-11 rounded-xl bg-[#0B4F8A] flex items-center justify-center text-white font-semibold text-xs">
+                                        {getInitials(c.nome_completo)}
+                                      </div>
+                                    )}
+
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <div className="font-semibold text-slate-900 truncate">{c.nome_completo}</div>
+                                        {alreadyIn && (
+                                          <span className="text-[11px] px-2 py-0.5 rounded-full border border-slate-200 bg-white text-slate-600">
+                                            Já alocado
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-slate-500 mt-0.5 truncate">
+                                        {c.categoria || '—'} {c.telefone ? `• ${c.telefone}` : ''} • €/h:{' '}
+                                        <span className="text-slate-700 font-semibold">
+                                          {eur(Number((c as any).valor_hora || 0))}
                                         </span>
-                                      )}
+                                      </div>
                                     </div>
-                                    <div className="text-xs text-slate-500 mt-0.5 truncate">
-                                      {c.categoria || '—'} {c.telefone ? `• ${c.telefone}` : ''} • €/h:{' '}
-                                      <span className="text-slate-700 font-semibold">{eur(Number((c as any).valor_hora || 0))}</span>
-                                    </div>
-                                  </div>
 
-                                  <Badge variant={String(c.status).toLowerCase() === 'ativo' ? 'success' : 'default'}>{c.status}</Badge>
-                                </div>
-                              );
-                            })
-                          )}
+                                    <Badge variant={String(c.status).toLowerCase() === 'ativo' ? 'success' : 'default'}>
+                                      {c.status}
+                                    </Badge>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -887,8 +911,8 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
               {removeOpen && removeTarget && (
                 <>
                   <div className="fixed inset-0 bg-black/40 z-[80]" onClick={closeRemove} />
-                  <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-                    <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+                  <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-4">
+                    <div className="w-full sm:max-w-xl max-w-[95vw] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
                       <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-900">Desalocar colaborador</div>
@@ -966,7 +990,11 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                 <div className="space-y-3">
                   {documentos.map((doc) => {
                     const StatusIcon =
-                      doc.status_validade === 'vencido' ? XCircle : doc.status_validade === 'a_vencer' ? AlertTriangle : CheckCircle;
+                      doc.status_validade === 'vencido'
+                        ? XCircle
+                        : doc.status_validade === 'a_vencer'
+                        ? AlertTriangle
+                        : CheckCircle;
 
                     const statusColor =
                       doc.status_validade === 'vencido'
@@ -992,10 +1020,12 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                           <div className="flex-1 min-w-0">
                             <div className="font-semibold text-slate-900">{doc.tipo_documento_nome}</div>
                             <div className="text-xs text-slate-600 mt-1">
-                              {doc.entidade_tipo} • {doc.entidade_nome}
+                              {doc.entidade_tipo} • <span className="break-words">{doc.entidade_nome}</span>
                             </div>
                             <div className="mt-2 text-xs text-slate-500">Upload: {formatDatePT(doc.data_upload)}</div>
-                            {doc.data_validade && <div className="mt-1 text-xs text-slate-500">Validade: {formatDatePT(doc.data_validade)}</div>}
+                            {doc.data_validade && (
+                              <div className="mt-1 text-xs text-slate-500">Validade: {formatDatePT(doc.data_validade)}</div>
+                            )}
                           </div>
                         </div>
                       </Card>
@@ -1011,15 +1041,15 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
               <Card className="p-4 bg-gradient-to-br from-blue-50 to-white border-blue-200">
                 <div className="flex items-start gap-3">
                   <MapPin size={24} className="text-blue-600 flex-shrink-0 mt-1" />
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <div className="font-semibold text-slate-900">{obra.localizacao || 'Localização'}</div>
-                    {obra.endereco && <div className="text-sm text-slate-600 mt-1">{obra.endereco}</div>}
+                    {obra.endereco && <div className="text-sm text-slate-600 mt-1 break-words">{obra.endereco}</div>}
                   </div>
                 </div>
               </Card>
 
               <Card className="overflow-hidden">
-                <div className="relative h-[400px] bg-slate-100">
+                <div className="relative h-[260px] sm:h-[400px] bg-slate-100">
                   <iframe
                     width="100%"
                     height="100%"
@@ -1030,7 +1060,9 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                     src={
                       obra.latitude && obra.longitude
                         ? `https://www.google.com/maps/search/?api=1&query=${obra.latitude},${obra.longitude}`
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(obra.endereco || obra.localizacao || obra.nome)}`
+                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            obra.endereco || obra.localizacao || obra.nome
+                          )}`
                     }
                   />
                 </div>
@@ -1053,6 +1085,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                   <ExternalLink size={16} className="mr-2" />
                   Abrir no Google Maps
                 </Button>
+
                 <Button
                   variant="secondary"
                   className="w-full"
