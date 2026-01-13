@@ -2,9 +2,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------- BASE GLOBAL (consistência em qualquer ecrã) ---------- */
+@layer base {
+  html {
+    font-size: 16px; /* base estável */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Evita “estouro” em grids/flex quando conteúdo é grande */
+  * {
+    min-width: 0;
+  }
+
+  /* Mantém scrollbars previsíveis (opcional) */
+  :root {
+    scrollbar-gutter: stable;
+  }
+}
+
 /* ---------- DARK MODE: SELECT DROPDOWN (options) ---------- */
 @layer base {
-  /* Ajuda o browser a renderizar controls nativos corretamente */
   :root {
     color-scheme: light;
   }
@@ -13,20 +38,17 @@
     color-scheme: dark;
   }
 
-  /* Força dropdown e UI nativa do select a respeitar dark */
   .dark select,
   .dark input,
   .dark textarea {
     color-scheme: dark;
   }
 
-  /* Muitos browsers respeitam isso nas opções do dropdown */
   .dark select option {
     background-color: #0f172a; /* slate-900 */
-    color: #e2e8f0;            /* slate-200 */
+    color: #e2e8f0; /* slate-200 */
   }
 
-  /* Melhor leitura quando o item está selecionado/hover (onde suportado) */
   .dark select option:checked {
     background-color: #1e293b; /* slate-800 */
     color: #ffffff;
