@@ -1,3 +1,4 @@
+// src/i18n/fr.ts
 export default {
   // Common
   'common.save': 'Enregistrer',
@@ -34,6 +35,7 @@ export default {
   'language.hi': 'हिन्दी',
   'language.ar': 'العربية',
   'language.select': 'Sélectionner la langue',
+  'language.menuTitle': 'Langue',
 
   // Auth
   'auth.login': 'Connexion',
@@ -45,8 +47,37 @@ export default {
   'auth.welcome': 'Bon retour',
   'auth.subtitle': 'Connectez-vous à votre compte pour continuer',
   'auth.error': 'Email ou mot de passe incorrect',
-  'auth.emailRequired': 'L\'email est obligatoire',
+  'auth.emailRequired': "L'email est obligatoire",
   'auth.passwordRequired': 'Le mot de passe est obligatoire',
+
+  // Auth (Login Page extras)
+  'auth.mode.operacoes': 'Accès Opérations',
+  'auth.mode.admin': 'Accès Administration',
+  'auth.mode.adminNotice':
+    'Seuls les utilisateurs avec le profil Owner ou Admin doivent utiliser ce mode.',
+  'auth.emailPlaceholder': 'vous@email.com',
+  'auth.passwordPlaceholder': '••••••••',
+  'auth.passwordShow': 'Afficher le mot de passe',
+  'auth.passwordHide': 'Masquer le mot de passe',
+  'auth.recoveryNotImplemented': 'Le flux de récupération n’est pas encore implémenté.',
+  'auth.footer': 'Système interne Diâmetro • Accès restreint',
+  'auth.loginErrorGeneric': 'Erreur de connexion',
+
+  // Auth (Hero - gauche)
+  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandSubtitle': 'Gestion des chantiers & collaborateurs',
+  'auth.hero.headlineA': 'Plomberie professionnelle',
+  'auth.hero.headlineB': 'avec contrôle total',
+  'auth.hero.description':
+    'Présences, équipes, paiements et validité des documents — dans un seul panneau, avec audit et permissions.',
+  'auth.hero.feature1.title': 'Conformité et validité',
+  'auth.hero.feature1.desc': 'Alertes et historique des documents critiques.',
+  'auth.hero.feature2.title': 'Accès par profils',
+  'auth.hero.feature2.desc': 'Administration et Opérations avec permissions.',
+
+  // Auth (Notification post-login)
+  'auth.notification.title': 'Bienvenue sur Sistema Diâmetro',
+  'auth.notification.body': 'Bonjour {nome} ! Accès au système réussi.',
 
   // Navigation
   'nav.dashboard': 'Tableau de bord',
@@ -63,12 +94,12 @@ export default {
 
   // Dashboard
   'dashboard.title': 'Tableau de bord',
-  'dashboard.overview': 'Vue d\'ensemble',
+  'dashboard.overview': "Vue d'ensemble",
   'dashboard.activeCollaborators': 'Collaborateurs actifs',
   'dashboard.activeWorks': 'Projets actifs',
   'dashboard.expiredDocuments': 'Documents expirés',
   'dashboard.monthlyHours': 'Heures du mois',
-  'dashboard.laborCost': 'Coût de la main-d\'œuvre',
+  'dashboard.laborCost': "Coût de la main-d'œuvre",
   'dashboard.recentActivity': 'Activité récente',
   'dashboard.costPerWork': 'Coût par projet',
   'dashboard.hoursLast30Days': 'Heures (30 derniers jours)',
@@ -87,7 +118,7 @@ export default {
   'obras.endDate': 'Date de fin prévue',
   'obras.description': 'Description',
   'obras.company': 'Entreprise',
-  'obras.laborCost': 'Coût de la main-d\'œuvre',
+  'obras.laborCost': "Coût de la main-d'œuvre",
   'obras.address': 'Adresse',
   'obras.street': 'Rue',
   'obras.number': 'Numéro',
@@ -95,7 +126,7 @@ export default {
   'obras.parish': 'Paroisse',
   'obras.municipality': 'Municipalité',
   'obras.district': 'District',
-  'obras.searchAddress': 'Rechercher l\'adresse',
+  'obras.searchAddress': "Rechercher l'adresse",
   'obras.logo': 'Logo',
   'obras.uploadLogo': 'Télécharger le logo',
   'obras.changeLogo': 'Changer le logo',
@@ -116,7 +147,7 @@ export default {
   'colaboradores.position': 'Poste',
   'colaboradores.status': 'Statut',
   'colaboradores.hourlyRate': 'Taux horaire',
-  'colaboradores.nif': 'Numéro d\'identification fiscale',
+  'colaboradores.nif': "Numéro d'identification fiscale",
   'colaboradores.niss': 'Numéro de sécurité sociale',
   'colaboradores.birthDate': 'Date de naissance',
   'colaboradores.active': 'Actif',
@@ -140,8 +171,8 @@ export default {
   'documentos.new': 'Nouveau document',
   'documentos.type': 'Type de document',
   'documentos.entity': 'Entité',
-  'documentos.entityType': 'Type d\'entité',
-  'documentos.expiryDate': 'Date d\'expiration',
+  'documentos.entityType': "Type d'entité",
+  'documentos.expiryDate': "Date d'expiration",
   'documentos.file': 'Fichier',
   'documentos.upload': 'Télécharger le document',
   'documentos.download': 'Télécharger',
@@ -149,7 +180,7 @@ export default {
   'documentos.valid': 'Valide',
   'documentos.expiringSoon': 'Expire bientôt',
   'documentos.selectEntityType': 'Sélectionner le type',
-  'documentos.selectEntity': 'Sélectionner l\'entité',
+  'documentos.selectEntity': "Sélectionner l'entité",
   'documentos.collaborator': 'Collaborateur',
   'documentos.company': 'Entreprise',
 

@@ -1,12 +1,15 @@
+// src/components/ui/LanguageSelector.tsx
+import React from 'react';
 import { Globe } from 'lucide-react';
 import { useLanguage, Language } from '../../contexts/LanguageContext';
 
 interface LanguageSelectorProps {
   showLabel?: boolean;
   className?: string;
+  labelKey?: string; // opcional: permite trocar a chave do label
 }
 
-const LANGUAGES = [
+const LANGUAGES: { code: Language; flag: string; label: string }[] = [
   { code: 'pt', flag: '🇵🇹', label: 'Português (PT)' },
   { code: 'pt-BR', flag: '🇧🇷', label: 'Português (BR)' },
   { code: 'en', flag: '🇬🇧', label: 'English' },
@@ -16,28 +19,35 @@ const LANGUAGES = [
   { code: 'ar', flag: '🇸🇦', label: 'العربية' },
 ];
 
-export function LanguageSelector({ showLabel = true, className = '' }: LanguageSelectorProps) {
+export function LanguageSelector({
+  showLabel = true,
+  className = '',
+  labelKey = 'perfil.language',
+}: LanguageSelectorProps) {
   const { language, setLanguage, t } = useLanguage();
 
   return (
     <div className={`w-full ${className}`}>
       {showLabel && (
         <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1.5">
-          {t('perfil.language')}
+          {t(labelKey)}
         </label>
       )}
+
       <div className="relative">
         <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">
           <Globe size={16} />
         </div>
+
         <select
           value={language}
-          onChange={(e) => setLanguage(e.target.value as Language)}
+          onChange={(e) => void setLanguage(e.target.value as Language)}
           className="w-full pl-10 pr-10 py-2.5 rounded-xl text-sm outline-none appearance-none
-                    border bg-white text-slate-900 border-slate-200
-                    dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800
-                    focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
-                    dark:focus:ring-[#0B4F8A]/35"
+                     border bg-white text-slate-900 border-slate-200
+                     dark:bg-slate-900 dark:text-slate-100 dark:border-slate-800
+                     focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                     dark:focus:ring-2 dark:focus:ring-[#0B4F8A]/35"
+          aria-label={t(labelKey)}
         >
           {LANGUAGES.map((lang) => (
             <option key={lang.code} value={lang.code}>
@@ -45,6 +55,7 @@ export function LanguageSelector({ showLabel = true, className = '' }: LanguageS
             </option>
           ))}
         </select>
+
         <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
           <svg
             width="18"
@@ -52,6 +63,7 @@ export function LanguageSelector({ showLabel = true, className = '' }: LanguageS
             viewBox="0 0 24 24"
             className="text-slate-400 dark:text-slate-400"
             fill="none"
+            aria-hidden="true"
           >
             <path
               d="M7 10l5 5 5-5"

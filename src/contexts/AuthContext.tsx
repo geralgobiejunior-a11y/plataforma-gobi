@@ -8,25 +8,28 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
 
 export type AccessType = "operacoes" | "administracao";
+export type LoginMode = "operacoes" | "admin";
 
 export interface UserData {
-  id: string; // auth user id
+  id: string;
   email: string;
-  nome: string; // vem do metadata se existir, senão derivado do email
-  tipo_acesso: AccessType; // derivado do role
-  ativo: boolean; // user_profiles.is_active
-  roles: string[]; // hoje 1 role, mas já deixo array
+  nome: string;
+  tipo_acesso: AccessType;
+  ativo: boolean;
+  roles: string[];
 }
 
 interface AuthContextType {
   user: UserData | null;
   loading: boolean;
 
-  signIn: (email: string, password: string) => Promise<UserData>;
+  authError: string;
+  clearAuthError: () => void;
+
+  signIn: (email: string, password: string, mode?: LoginMode) => Promise<UserData>;
   signOut: () => Promise<void>;
 
   userRoles: string[];
@@ -37,6 +40,24 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const LOGIN_MODE_KEY = "diametro_login_mode";
+
+// safe localStorage helpers (evita crash em ambientes sem window)
+function lsGet(key: string): string {
+  try {
+    if (typeof window === "undefined") return "";
+    return String(window.localStorage.getItem(key) || "");
+  } catch {
+    return "";
+  }
+}
+function lsSet(key: string, value: string) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(key, value);
+  } catch {}
+}
 
 function deriveNome(email: string, metaName?: string | null) {
   if (metaName && String(metaName).trim()) return String(metaName).trim();
@@ -50,68 +71,104 @@ function roleToAccess(role: string): AccessType {
   return "operacoes";
 }
 
-function makeAuthedClient(accessToken: string, storageKey = "sb-authed-profile"): SupabaseClient {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !anon) throw new Error("Missing Supabase environment variables for authed client");
+function normalizeRole(role: any) {
+  const r = String(role || "operacoes").toLowerCase();
+  if (r === "owner" || r === "admin" || r === "operacoes") return r;
+  return "operacoes";
+}
 
-  return createClient(url, anon, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-      // evita conflito com o storage do client principal
-      storageKey,
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-  });
+function getSavedLoginMode(): LoginMode {
+  const raw = lsGet(LOGIN_MODE_KEY).toLowerCase();
+  return raw === "admin" ? "admin" : "operacoes";
+}
+
+function setSavedLoginMode(mode: LoginMode) {
+  lsSet(LOGIN_MODE_KEY, mode);
+}
+
+function normalizeAuthError(err: any) {
+  const msg = String(err?.message || err?.error_description || err?.error || "").toLowerCase();
+  const code = String(err?.code || err?.error_code || "").toLowerCase();
+  const status = Number(err?.status || err?.statusCode || 0);
+
+  if (
+    msg.includes("invalid login credentials") ||
+    msg.includes("invalid_credentials") ||
+    msg.includes("invalid_grant") ||
+    code.includes("invalid") ||
+    status === 400
+  ) {
+    return "Email ou palavra-passe incorretos.";
+  }
+
+  if (msg.includes("email not confirmed")) {
+    return "Email ainda não confirmado. Verifique a caixa de entrada.";
+  }
+
+  if (msg.includes("too many requests") || msg.includes("rate limit")) {
+    return "Muitas tentativas. Aguarde um pouco e tente novamente.";
+  }
+
+  if (msg.includes("network") || msg.includes("failed to fetch")) {
+    return "Sem ligação ao servidor. Verifique a internet e tente novamente.";
+  }
+
+  if (err?.message) return String(err.message);
+  return "Erro ao fazer login.";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Evita hidratar múltiplas vezes no INITIAL_SESSION
+  const [authError, setAuthError] = useState<string>("");
+  const clearAuthError = () => setAuthError("");
+
   const hydratedInitialRef = useRef(false);
 
-  // Singleton do client “authed” para ler user_profiles com Bearer
-  const authedRef = useRef<{ token: string; client: SupabaseClient } | null>(null);
+  // indica tentativa manual de login em andamento
+  const manualAuthInFlightRef = useRef(false);
 
-  const getAuthedClient = (token: string) => {
-    const current = authedRef.current;
-    if (current && current.token === token) return current.client;
+  const userRoles = useMemo(
+    () => (user?.roles ?? []).map((r) => String(r).toLowerCase()),
+    [user]
+  );
 
-    const client = makeAuthedClient(token);
-    authedRef.current = { token, client };
-    return client;
-  };
-
-  const userRoles = useMemo(() => (user?.roles ?? []).map((r) => String(r).toLowerCase()), [user]);
-
-  const hasRole = (role: string) => {
-    const r = String(role).toLowerCase();
-    return userRoles.includes(r);
-  };
-
+  const hasRole = (role: string) => userRoles.includes(String(role).toLowerCase());
   const isAdmin = hasRole("owner") || hasRole("admin");
   const isOperations = !isAdmin;
 
-  const hydrateFromSession = async (session: any, reason: string) => {
-    const authUser = session?.user;
-    const accessToken = session?.access_token as string | undefined;
+  const fetchRoleAndActive = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role, is_active")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (!authUser) {
-      setUser(null);
-      return;
+    if (error) throw new Error(error.message || "Erro ao carregar perfil (user_roles).");
+    if (!data) throw new Error("Utilizador sem role configurada (user_roles).");
+    if (data.is_active !== true) throw new Error("Utilizador inativo.");
+
+    return { role: normalizeRole(data.role), ativo: true };
+  };
+
+  const assertModeAccess = (mode: LoginMode, roleLower: string) => {
+    const isRoleAdmin = roleLower === "owner" || roleLower === "admin";
+    const isRoleOper = roleLower === "operacoes";
+
+    if (mode === "admin" && !isRoleAdmin) {
+      throw new Error(
+        'O seu login é de Operações. Use "Acesso Operações" ou peça acesso ao Owner/Admin.'
+      );
     }
-    if (!accessToken) {
-      // sem token não dá para garantir leitura do perfil com RLS
-      throw new Error("Sessão sem access_token.");
+    if (mode === "operacoes" && !isRoleOper) {
+      throw new Error('O seu login é de Administração. Use "Acesso Administração".');
     }
+  };
+
+  const buildUserData = async (session: any, mode: LoginMode, reason: string): Promise<UserData> => {
+    const authUser = session?.user;
+    if (!authUser) throw new Error("Sessão inválida (sem utilizador).");
 
     const email = authUser.email ?? "";
     const nome = deriveNome(
@@ -119,66 +176,74 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (authUser.user_metadata as any)?.nome ?? (authUser.user_metadata as any)?.name
     );
 
-    const authed = getAuthedClient(accessToken);
+    const prof = await fetchRoleAndActive(authUser.id);
+    const roleLower = prof.role;
 
-    const { data, error } = await authed
-      .from("user_profiles")
-      .select("role, is_active")
-      .eq("user_id", authUser.id)
-      .maybeSingle();
+    assertModeAccess(mode, roleLower);
 
-    if (error) throw new Error(error.message || "Erro ao carregar perfil (user_profiles)");
-    if (!data) throw new Error("Perfil não configurado em user_profiles para este utilizador.");
-    if (data.is_active !== true) throw new Error("Utilizador inativo.");
-
-    const role = String(data.role || "operacoes");
-    const tipo_acesso = roleToAccess(role);
-
-    setUser({
+    const userData: UserData = {
       id: authUser.id,
       email,
       nome,
-      tipo_acesso,
+      tipo_acesso: roleToAccess(roleLower),
       ativo: true,
-      roles: [role],
-    });
+      roles: [roleLower],
+    };
 
-    // Debug (podes remover depois)
-    console.log("[AUTH] hydrated:", reason, email);
+    console.log("[AUTH] hydrated:", reason, email, "role=", roleLower, "mode=", mode);
+    return userData;
+  };
+
+  const hydrateFromSession = async (session: any, reason: string) => {
+    const savedMode = getSavedLoginMode();
+    const u = await buildUserData(session, savedMode, reason);
+    setUser(u);
   };
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
 
-      // evita duplicação do INITIAL_SESSION
       if (event === "INITIAL_SESSION") {
         if (hydratedInitialRef.current) return;
         hydratedInitialRef.current = true;
       }
 
-      setLoading(true);
       console.log("[AUTH] onAuthStateChange:", event);
 
+      // ✅ login manual controla o SIGNED_IN (evita duplicar hidratação)
+      if (event === "SIGNED_IN") return;
+
+      // ✅ SIGNED_OUT: não apaga authError; só limpa o user
+      // e evita flicker de loading durante tentativa manual
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
       try {
         if (!session?.user) {
           setUser(null);
-        } else {
-          await hydrateFromSession(session, `onAuthStateChange(${event})`);
+          return;
         }
+        await hydrateFromSession(session, `onAuthStateChange(${event})`);
       } catch (e) {
         console.error("[AUTH] hydrate failed:", e);
         setUser(null);
+        try {
+          await supabase.auth.signOut();
+        } catch {}
       } finally {
         setLoading(false);
       }
     });
 
-    // NÃO chamamos getSession() aqui para evitar timeout/double hydrate.
-    // O Supabase vai disparar INITIAL_SESSION automaticamente.
+    // carrega a sessão inicial via evento
+    setLoading(true);
 
     return () => {
       mounted = false;
@@ -186,91 +251,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const signIn = async (email: string, password: string) => {
-    setLoading(true);
+  const signIn = async (email: string, password: string, mode: LoginMode = "operacoes") => {
+    setAuthError("");
+    manualAuthInFlightRef.current = true;
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-
-    if (error) {
-      setLoading(false);
-      throw new Error(error.message || "Email ou palavra-passe incorretos.");
-    }
-
-    if (!data.user) {
-      setLoading(false);
-      throw new Error("Falha no login: utilizador não retornado.");
-    }
-
-    // signInWithPassword normalmente devolve session
-    if (!data.session?.access_token) {
-      setLoading(false);
-      throw new Error("Falha no login: sessão não retornada (sem access_token).");
-    }
+    let sessionCreated = false;
 
     try {
-      await hydrateFromSession(data.session, "signInWithPassword");
-      // devolve o estado já hidratado
-      const current = {
-        id: data.user.id,
-        email: data.user.email ?? "",
-        nome: deriveNome(
-          data.user.email ?? "",
-          (data.user.user_metadata as any)?.nome ?? (data.user.user_metadata as any)?.name
-        ),
-        // estes 3 abaixo serão sobrescritos pelo setUser no hydrate,
-        // mas retornamos o user do estado logo após.
-        tipo_acesso: "operacoes" as AccessType,
-        ativo: true,
-        roles: [],
-      };
-
-      // Melhor: devolve o user do estado depois do hydrate
-      // (garante role/tipo_acesso corretos)
-      const u = await new Promise<UserData>((resolve) => {
-        // microtask: esperar o setUser
-        queueMicrotask(() => resolve((prev => prev) as any));
-        queueMicrotask(() => resolve((() => (authedRef ? (null as any) : null)) as any));
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
       });
 
-      // Como o acima não é confiável, devolvemos direto do estado via leitura síncrona:
-      // (setUser já ocorreu no hydrate; ainda assim, para garantir, montamos pelo retorno do hydrate)
-      // -> então, reconstruímos aqui com o resultado do perfil:
-      // Para manter simples: fazemos uma leitura novamente do perfil e retornamos correto.
+      if (error) throw error;
 
-      const authed = getAuthedClient(data.session.access_token);
-      const { data: prof, error: profErr } = await authed
-        .from("user_profiles")
-        .select("role, is_active")
-        .eq("user_id", data.user.id)
-        .maybeSingle();
+      sessionCreated = Boolean(data?.session);
 
-      if (profErr) throw new Error(profErr.message || "Erro ao carregar perfil (user_profiles)");
-      if (!prof) throw new Error("Perfil não configurado em user_profiles para este utilizador.");
-      if (prof.is_active !== true) throw new Error("Utilizador inativo.");
+      if (!data.user || !data.session) {
+        throw new Error("Falha no login: sessão/utilizador não retornado.");
+      }
 
-      const role = String(prof.role || "operacoes");
-      const tipo_acesso = roleToAccess(role);
+      const u = await buildUserData(data.session, mode, "manual signIn");
 
-      const userData: UserData = {
-        id: data.user.id,
-        email: data.user.email ?? "",
-        nome: current.nome,
-        tipo_acesso,
-        ativo: true,
-        roles: [role],
-      };
+      setSavedLoginMode(mode);
+      setUser(u);
+      return u;
+    } catch (e: any) {
+      const msg = normalizeAuthError(e);
+      setAuthError(msg);
+      setUser(null);
 
-      setUser(userData);
-      return userData;
+      // ✅ só faz signOut se chegou a existir sessão
+      // (ex.: autenticou mas falhou em assertModeAccess)
+      if (sessionCreated) {
+        try {
+          await supabase.auth.signOut();
+        } catch {}
+      }
+
+      throw new Error(msg);
     } finally {
-      setLoading(false);
+      manualAuthInFlightRef.current = false;
     }
   };
 
   const signOut = async () => {
+    setAuthError("");
     await supabase.auth.signOut();
     setUser(null);
   };
@@ -278,6 +304,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextType = {
     user,
     loading,
+    authError,
+    clearAuthError,
     signIn,
     signOut,
     userRoles,

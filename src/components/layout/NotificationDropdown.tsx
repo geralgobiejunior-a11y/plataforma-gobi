@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import { Bell, Check, CheckCheck, X } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+// src/components/layout/NotificationDropdown.tsx
+import { useState, useEffect, useRef } from "react";
+import { Bell, Check, CheckCheck, X } from "lucide-react";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   Notification,
   getNotifications,
@@ -9,7 +10,7 @@ import {
   markAllAsRead,
   getNotificationIcon,
   getNotificationColor,
-} from '../../lib/notifications';
+} from "../../lib/notifications";
 
 export function NotificationDropdown() {
   const { user } = useAuth();
@@ -24,7 +25,8 @@ export function NotificationDropdown() {
       const cleanup = subscribeToNotifications();
       return cleanup;
     }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -34,8 +36,8 @@ export function NotificationDropdown() {
     }
 
     if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [isOpen]);
 
@@ -51,13 +53,13 @@ export function NotificationDropdown() {
     if (!user) return;
 
     const channel = supabase
-      .channel('notifications')
+      .channel(`notifications:${user.id}`)
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: '*',
-          schema: 'public',
-          table: 'notificacoes',
+          event: "*",
+          schema: "public",
+          table: "notificacoes",
           filter: `user_id=eq.${user.id}`,
         },
         () => {
@@ -71,15 +73,17 @@ export function NotificationDropdown() {
     };
   };
 
+  // ✅ ao marcar como lida, remove do dropdown imediatamente
   const handleMarkAsRead = async (notificationId: string) => {
     await markAsRead(notificationId);
-    setNotifications((prev) => prev.map((n) => (n.id === notificationId ? { ...n, lida: true } : n)));
+    setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
   };
 
+  // ✅ ao marcar todas como lidas, limpa o dropdown
   const handleMarkAllAsRead = async () => {
     if (!user) return;
     await markAllAsRead(user.id);
-    setNotifications((prev) => prev.map((n) => ({ ...n, lida: true })));
+    setNotifications([]);
   };
 
   const unreadCount = notifications.filter((n) => !n.lida).length;
@@ -92,11 +96,11 @@ export function NotificationDropdown() {
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 1) return 'Agora';
+    if (diffMins < 1) return "Agora";
     if (diffMins < 60) return `${diffMins}min atrás`;
     if (diffHours < 24) return `${diffHours}h atrás`;
     if (diffDays < 7) return `${diffDays}d atrás`;
-    return d.toLocaleDateString('pt-PT');
+    return d.toLocaleDateString("pt-PT");
   };
 
   return (
@@ -104,20 +108,20 @@ export function NotificationDropdown() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={[
-          'relative inline-flex items-center justify-center h-10 w-10 rounded-xl border transition',
-          'focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30',
+          "relative inline-flex items-center justify-center h-10 w-10 rounded-xl border transition",
+          "focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30",
           // light
-          'border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50',
+          "border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50",
           // dark
-          'dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800',
-        ].join(' ')}
+          "dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800",
+        ].join(" ")}
         aria-label="Notificações"
         type="button"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-xs font-semibold flex items-center justify-center">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
@@ -125,19 +129,21 @@ export function NotificationDropdown() {
       {isOpen && (
         <div
           className={[
-            'absolute right-0 mt-2 w-[420px] rounded-2xl shadow-xl z-50 overflow-hidden',
+            "absolute right-0 mt-2 w-[420px] rounded-2xl shadow-xl z-50 overflow-hidden",
             // light
-            'bg-white border border-slate-200',
+            "bg-white border border-slate-200",
             // dark
-            'dark:bg-slate-900 dark:border-slate-800 dark:shadow-black/40',
-          ].join(' ')}
+            "dark:bg-slate-900 dark:border-slate-800 dark:shadow-black/40",
+          ].join(" ")}
         >
           {/* Header */}
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-slate-900 dark:text-slate-100">Notificações</h3>
               {unreadCount > 0 && (
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{unreadCount} não lida(s)</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  {unreadCount} não lida(s)
+                </p>
               )}
             </div>
 
@@ -182,26 +188,23 @@ export function NotificationDropdown() {
                   const icon = getNotificationIcon(notification.tipo);
                   const colorClass = getNotificationColor(notification.tipo);
 
-                  // “não lida” no dark precisa de um fundo sutil (sem virar branco)
-                  const unreadBg = 'bg-blue-50/30 dark:bg-[#0B4F8A]/10';
+                  const unreadBg = "bg-blue-50/30 dark:bg-[#0B4F8A]/10";
 
                   return (
                     <div
                       key={notification.id}
                       className={[
-                        'p-4 transition',
-                        'hover:bg-slate-50 dark:hover:bg-slate-800/60',
-                        !notification.lida ? unreadBg : '',
-                      ].join(' ')}
+                        "p-4 transition",
+                        "hover:bg-slate-50 dark:hover:bg-slate-800/60",
+                        !notification.lida ? unreadBg : "",
+                      ].join(" ")}
                     >
                       <div className="flex gap-3">
                         <div
                           className={[
-                            'h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 text-lg',
-                            // importante: se teu getNotificationColor retornar bg claro, ele pode ficar “estourado” no dark.
-                            // ideal é ajustar o getNotificationColor para também retornar classes dark:...
+                            "h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 text-lg",
                             colorClass,
-                          ].join(' ')}
+                          ].join(" ")}
                         >
                           {icon}
                         </div>
@@ -210,10 +213,10 @@ export function NotificationDropdown() {
                           <div className="flex items-start justify-between gap-2">
                             <h4
                               className={[
-                                'text-sm font-semibold',
-                                'text-slate-900 dark:text-slate-100',
-                                !notification.lida ? 'font-bold' : '',
-                              ].join(' ')}
+                                "text-sm font-semibold",
+                                "text-slate-900 dark:text-slate-100",
+                                !notification.lida ? "font-bold" : "",
+                              ].join(" ")}
                             >
                               {notification.titulo}
                             </h4>
@@ -246,17 +249,7 @@ export function NotificationDropdown() {
             )}
           </div>
 
-          {/* Footer */}
-          {notifications.length > 0 && (
-            <div className="p-3 border-t border-slate-200 dark:border-slate-800 text-center bg-white dark:bg-slate-900">
-              <button
-                className="text-sm text-[#0B4F8A] hover:text-[#0B4F8A]/80 font-medium"
-                type="button"
-              >
-                Ver todas as notificações
-              </button>
-            </div>
-          )}
+          {/* Footer removido (sem "Ver todas as notificações") */}
         </div>
       )}
     </div>

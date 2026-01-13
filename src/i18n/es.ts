@@ -1,3 +1,4 @@
+// src/i18n/es.ts
 export default {
   // Common
   'common.save': 'Guardar',
@@ -34,6 +35,7 @@ export default {
   'language.hi': 'हिन्दी',
   'language.ar': 'العربية',
   'language.select': 'Seleccionar idioma',
+  'language.menuTitle': 'Idioma',
 
   // Auth
   'auth.login': 'Iniciar sesión',
@@ -47,6 +49,36 @@ export default {
   'auth.error': 'Correo electrónico o contraseña incorrectos',
   'auth.emailRequired': 'El correo electrónico es obligatorio',
   'auth.passwordRequired': 'La contraseña es obligatoria',
+
+  // Auth (Login Page extras)
+  'auth.mode.operacoes': 'Acceso Operaciones',
+  'auth.mode.admin': 'Acceso Administración',
+  'auth.mode.adminNotice':
+    'Solo los usuarios con perfil Owner o Admin deben usar este modo.',
+  'auth.emailPlaceholder': 'tu@correo.com',
+  'auth.passwordPlaceholder': '••••••••',
+  'auth.passwordShow': 'Mostrar contraseña',
+  'auth.passwordHide': 'Ocultar contraseña',
+  'auth.recoveryNotImplemented': 'El flujo de recuperación aún no está implementado.',
+  'auth.footer': 'Sistema interno Diâmetro • Acceso restringido',
+  'auth.loginErrorGeneric': 'Error al iniciar sesión',
+
+  // Auth (Hero - izquierda)
+  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandSubtitle': 'Gestión de Obras y Colaboradores',
+  'auth.hero.headlineA': 'Fontanería profesional',
+  'auth.hero.headlineB': 'con control total',
+  'auth.hero.description':
+    'Asistencia, equipos, pagos y documentos con validez — en un solo panel, con auditoría y permisos.',
+  'auth.hero.feature1.title': 'Cumplimiento y validez',
+  'auth.hero.feature1.desc': 'Alertas e historial de documentos críticos.',
+  'auth.hero.feature2.title': 'Acceso por perfiles',
+  'auth.hero.feature2.desc': 'Administración y Operaciones con permisos.',
+
+  // Auth (Notificación post-login)
+  'auth.notification.title': 'Bienvenido a Sistema Diâmetro',
+  'auth.notification.body':
+    'Hola {nome}! Acceso al sistema realizado con éxito.',
 
   // Navigation
   'nav.dashboard': 'Panel',

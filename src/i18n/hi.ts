@@ -1,3 +1,4 @@
+// src/i18n/hi.ts
 export default {
   // Common
   'common.save': 'सहेजें',
@@ -34,6 +35,7 @@ export default {
   'language.hi': 'हिन्दी',
   'language.ar': 'العربية',
   'language.select': 'भाषा चुनें',
+  'language.menuTitle': 'भाषा',
 
   // Auth
   'auth.login': 'लॉगिन करें',
@@ -47,6 +49,36 @@ export default {
   'auth.error': 'अमान्य ईमेल या पासवर्ड',
   'auth.emailRequired': 'ईमेल आवश्यक है',
   'auth.passwordRequired': 'पासवर्ड आवश्यक है',
+
+  // Auth (Login Page extras)
+  'auth.mode.operacoes': 'ऑपरेशन्स एक्सेस',
+  'auth.mode.admin': 'एडमिनिस्ट्रेशन एक्सेस',
+  'auth.mode.adminNotice':
+    'केवल Owner या Admin प्रोफ़ाइल वाले उपयोगकर्ताओं को इस मोड का उपयोग करना चाहिए।',
+  'auth.emailPlaceholder': 'आपका@email.com',
+  'auth.passwordPlaceholder': '••••••••',
+  'auth.passwordShow': 'पासवर्ड दिखाएँ',
+  'auth.passwordHide': 'पासवर्ड छिपाएँ',
+  'auth.recoveryNotImplemented': 'पासवर्ड रिकवरी फ़्लो अभी लागू नहीं है।',
+  'auth.footer': 'Diâmetro आंतरिक सिस्टम • सीमित पहुँच',
+  'auth.loginErrorGeneric': 'लॉगिन में त्रुटि',
+
+  // Auth (Hero - left)
+  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandSubtitle': 'परियोजनाओं और सहयोगियों का प्रबंधन',
+  'auth.hero.headlineA': 'प्रोफेशनल प्लम्बिंग',
+  'auth.hero.headlineB': 'पूर्ण नियंत्रण के साथ',
+  'auth.hero.description':
+    'उपस्थिति, टीमें, भुगतान और दस्तावेज़ वैधता — एक ही पैनल में, ऑडिट और अनुमतियों के साथ।',
+  'auth.hero.feature1.title': 'अनुपालन और वैधता',
+  'auth.hero.feature1.desc': 'महत्वपूर्ण दस्तावेज़ों के लिए अलर्ट और इतिहास।',
+  'auth.hero.feature2.title': 'भूमिका-आधारित पहुँच',
+  'auth.hero.feature2.desc': 'अनुमतियों के साथ प्रशासन और ऑपरेशन्स।',
+
+  // Auth (Post-login notification)
+  'auth.notification.title': 'Sistema Diâmetro में आपका स्वागत है',
+  'auth.notification.body':
+    'नमस्ते {nome}! सिस्टम में सफलतापूर्वक लॉगिन हो गया।',
 
   // Navigation
   'nav.dashboard': 'डैशबोर्ड',

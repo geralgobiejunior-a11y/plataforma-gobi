@@ -1,3 +1,4 @@
+// src/i18n/ar.ts
 export default {
   // Common
   'common.save': 'حفظ',
@@ -34,6 +35,7 @@ export default {
   'language.hi': 'हिन्दी',
   'language.ar': 'العربية',
   'language.select': 'اختر اللغة',
+  'language.menuTitle': 'اللغة',
 
   // Auth
   'auth.login': 'تسجيل الدخول',
@@ -42,11 +44,40 @@ export default {
   'auth.password': 'كلمة المرور',
   'auth.remember': 'تذكرني',
   'auth.forgot': 'نسيت كلمة المرور؟',
-  'auth.welcome': 'مرحبا بعودتك',
-  'auth.subtitle': 'سجل الدخول إلى حسابك للمتابعة',
+  'auth.welcome': 'مرحبًا بعودتك',
+  'auth.subtitle': 'سجّل الدخول إلى حسابك للمتابعة',
   'auth.error': 'البريد الإلكتروني أو كلمة المرور غير صحيحة',
   'auth.emailRequired': 'البريد الإلكتروني مطلوب',
   'auth.passwordRequired': 'كلمة المرور مطلوبة',
+
+  // Auth (Login Page extras)
+  'auth.mode.operacoes': 'وصول العمليات',
+  'auth.mode.admin': 'وصول الإدارة',
+  'auth.mode.adminNotice':
+    'يجب أن يستخدم هذا الوضع فقط المستخدمون الذين لديهم صلاحية Owner أو Admin.',
+  'auth.emailPlaceholder': 'you@email.com',
+  'auth.passwordPlaceholder': '••••••••',
+  'auth.passwordShow': 'إظهار كلمة المرور',
+  'auth.passwordHide': 'إخفاء كلمة المرور',
+  'auth.recoveryNotImplemented': 'مسار استعادة كلمة المرور غير مُنفّذ بعد.',
+  'auth.footer': 'نظام Diâmetro الداخلي • وصول مقيّد',
+  'auth.loginErrorGeneric': 'خطأ في تسجيل الدخول',
+
+  // Auth (Hero - left)
+  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandSubtitle': 'إدارة المشاريع والمتعاونين',
+  'auth.hero.headlineA': 'سباكة احترافية',
+  'auth.hero.headlineB': 'مع تحكّم كامل',
+  'auth.hero.description':
+    'الحضور، الفرق، المدفوعات وصلاحية المستندات — في لوحة واحدة مع التدقيق والصلاحيات.',
+  'auth.hero.feature1.title': 'الامتثال والصلاحية',
+  'auth.hero.feature1.desc': 'تنبيهات وسجل للمستندات الحساسة.',
+  'auth.hero.feature2.title': 'وصول حسب الصلاحيات',
+  'auth.hero.feature2.desc': 'الإدارة والعمليات مع مستويات وصول.',
+
+  // Auth (Post-login notification)
+  'auth.notification.title': 'مرحبًا بك في Sistema Diâmetro',
+  'auth.notification.body': 'مرحبًا {nome}! تم تسجيل الدخول بنجاح.',
 
   // Navigation
   'nav.dashboard': 'لوحة التحكم',

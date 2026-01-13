@@ -1,30 +1,56 @@
 // src/components/auth/LoginPage.tsx
 import {
-  useEffect,
   useMemo,
   useRef,
   useState,
   type FormEvent,
   type ReactNode,
+  useEffect,
 } from "react";
-import { Check, Eye, EyeOff, Globe, Lock, Mail, ShieldCheck } from "lucide-react";
+import {
+  Check,
+  Eye,
+  EyeOff,
+  Globe,
+  Lock,
+  Mail,
+  ShieldCheck,
+  X,
+  Phone,
+  MessageCircle,
+} from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useLanguage, type Language } from "../../contexts/LanguageContext";
 import { Button } from "../ui/Button";
 import { createNotification } from "../../lib/notifications";
+import { AUTH_STORAGE_KEY, AUTH_STORAGE_PREF_KEY } from "../../lib/supabase";
 
 type LoginMode = "operacoes" | "admin";
 
+// Preferências do login
+const LOGIN_REMEMBER_KEY = "login-remember"; // "1" | "0"
+const LOGIN_EMAIL_KEY = "login-email"; // email salvo
+
 export function LoginPage() {
-  const { signIn, signOut, user, isAdmin } = useAuth();
+  const { signIn, authError, clearAuthError } = useAuth();
   const { t } = useLanguage();
 
   const [mode, setMode] = useState<LoginMode>("operacoes");
+  const modeRef = useRef<LoginMode>("operacoes");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // erro local (UX imediata)
   const [error, setError] = useState("");
+
+  // ✅ lembrar-me (funcional)
+  const [rememberMe, setRememberMe] = useState(true);
+
+  // ✅ modal “esqueceu a palavra-passe”
+  const [supportOpen, setSupportOpen] = useState(false);
 
   const brand = useMemo(
     () => ({
@@ -35,34 +61,95 @@ export function LoginPage() {
     []
   );
 
-  // Se o utilizador entrou mas escolheu "Administração" sem permissão, força logout
+  // manter ref sincronizada
   useEffect(() => {
-    if (!user) return;
-    if (mode !== "admin") return;
+    modeRef.current = mode;
+  }, [mode]);
 
-    // Administração exige owner/admin
-    if (!isAdmin) {
-      setError("Sem permissão para Administração. Entre no modo Operações ou peça acesso.");
-      signOut();
-    }
-  }, [user, mode, isAdmin, signOut]);
+  // carregar preferências (remember + email)
+  useEffect(() => {
+    try {
+      const pref = localStorage.getItem(LOGIN_REMEMBER_KEY);
+      const remember = pref !== "0";
+      setRememberMe(remember);
+
+      const savedEmail = localStorage.getItem(LOGIN_EMAIL_KEY);
+      if (remember && savedEmail) setEmail(savedEmail);
+    } catch {}
+  }, []);
+
+  // se AuthContext setar authError, refletir no estado local (opcional)
+  useEffect(() => {
+    if (authError) setError(authError);
+  }, [authError]);
+
+  const clearAllErrors = () => {
+    if (error) setError("");
+    clearAuthError();
+  };
+
+  const setModeSafe = (next: LoginMode) => {
+    modeRef.current = next;
+    setMode(next);
+    clearAllErrors();
+    setSupportOpen(false);
+  };
+
+  const visibleError = (error || authError || "").trim();
+
+  const applyRememberPreference = (nextRemember: boolean, nextEmail: string) => {
+    try {
+      // 1) define onde o Supabase vai persistir a sessão
+      //    - true  => localStorage (persistente)
+      //    - false => sessionStorage (some ao fechar o browser)
+      localStorage.setItem(AUTH_STORAGE_PREF_KEY, nextRemember ? "local" : "session");
+
+      // 2) salva preferência do checkbox
+      localStorage.setItem(LOGIN_REMEMBER_KEY, nextRemember ? "1" : "0");
+
+      // 3) salva/remover email
+      const cleanEmail = (nextEmail || "").trim();
+      if (nextRemember && cleanEmail) localStorage.setItem(LOGIN_EMAIL_KEY, cleanEmail);
+      else localStorage.removeItem(LOGIN_EMAIL_KEY);
+
+      // 4) evita “sessão fantasma” (limpa APENAS o storage oposto)
+      if (nextRemember) {
+        sessionStorage.removeItem(AUTH_STORAGE_KEY);
+      } else {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+      }
+    } catch {}
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setError("");
+    clearAllErrors();
+
+    // ✅ importante: define storage ANTES do signIn (token será salvo no lugar correto)
+    applyRememberPreference(rememberMe, email);
+
     setSubmitting(true);
 
     try {
-      const userData = await signIn(email.trim(), password);
+      const selectedMode = modeRef.current;
+      console.log("[LOGIN] submit mode=", selectedMode);
 
-      await createNotification(
-        userData.id,
-        "sucesso",
-        "Bem-vindo ao Sistema Diâmetro",
-        `Olá ${userData.nome}! Acesso ao sistema realizado com sucesso.`
-      );
+      const userData = await signIn(email.trim(), password, selectedMode);
+
+      // notificação é opcional; se falhar não deve “mascarar” login
+      try {
+        await createNotification(
+          userData.id,
+          "sucesso",
+          t("auth.notification.title"),
+          t("auth.notification.body").replace("{nome}", userData.nome)
+        );
+      } catch (notifyErr) {
+        console.warn("[LOGIN] createNotification failed:", notifyErr);
+      }
     } catch (err: any) {
-      setError(err?.message || "Erro ao fazer login");
+      const msg = String(err?.message || "").trim();
+      setError(msg || t("auth.loginErrorGeneric"));
     } finally {
       setSubmitting(false);
     }
@@ -75,12 +162,10 @@ export function LoginPage() {
         background: `radial-gradient(1200px 600px at 15% 10%, ${brand.blue} 0%, ${brand.blue2} 45%, #071a2a 100%)`,
       }}
     >
-      {/* Language (top-right, like your 2nd print) */}
       <div className="absolute top-5 right-5 z-20">
         <CornerLanguageSelector />
       </div>
 
-      {/* Decorative blobs */}
       <div
         className="pointer-events-none absolute -top-24 -left-24 h-80 w-80 rounded-full blur-3xl opacity-25"
         style={{ backgroundColor: brand.orange }}
@@ -107,34 +192,42 @@ export function LoginPage() {
             <div className="relative z-10 p-10 flex flex-col justify-between">
               <div>
                 <div className="inline-flex items-center gap-3">
-                  <div className="h-10 w-1 rounded-full" style={{ backgroundColor: brand.orange }} />
+                  <div
+                    className="h-10 w-1 rounded-full"
+                    style={{ backgroundColor: brand.orange }}
+                  />
                   <div>
-                    <p className="text-white font-semibold text-base leading-none">Sistema Diâmetro</p>
-                    <p className="text-white/70 text-sm">Gestão de Obras & Colaboradores</p>
+                    <p className="text-white font-semibold text-base leading-none">
+                      {t("auth.hero.brandTitle")}
+                    </p>
+                    <p className="text-white/70 text-sm">
+                      {t("auth.hero.brandSubtitle")}
+                    </p>
                   </div>
                 </div>
 
                 <h2 className="mt-10 text-white text-3xl font-bold leading-tight">
-                  Canalização profissional <br />
-                  <span style={{ color: brand.orange }}>com controlo total</span>
+                  {t("auth.hero.headlineA")} <br />
+                  <span style={{ color: brand.orange }}>
+                    {t("auth.hero.headlineB")}
+                  </span>
                 </h2>
 
                 <p className="mt-4 text-white/80 max-w-md">
-                  Presenças, equipas, pagamentos e documentos com validade — num só painel,
-                  com auditoria e permissões.
+                  {t("auth.hero.description")}
                 </p>
               </div>
 
               <div className="grid gap-3">
                 <FeatureRow
                   icon={<ShieldCheck className="h-5 w-5" />}
-                  title="Conformidade e validade"
-                  desc="Alertas e histórico de documentos críticos."
+                  title={t("auth.hero.feature1.title")}
+                  desc={t("auth.hero.feature1.desc")}
                 />
                 <FeatureRow
                   icon={<Lock className="h-5 w-5" />}
-                  title="Acesso por perfis"
-                  desc="Administração e Operações com permissões."
+                  title={t("auth.hero.feature2.title")}
+                  desc={t("auth.hero.feature2.desc")}
                 />
               </div>
             </div>
@@ -157,7 +250,6 @@ export function LoginPage() {
             />
 
             <div className="p-7 sm:p-10">
-              {/* Header */}
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div className="flex items-start gap-4">
                   <img
@@ -168,18 +260,19 @@ export function LoginPage() {
                   />
 
                   <div>
-                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{t("auth.welcome")}</h1>
+                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
+                      {t("auth.welcome")}
+                    </h1>
                     <p className="text-sm text-slate-500">{t("auth.subtitle")}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Mode toggle */}
               <div className="mt-2">
                 <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
                   <button
                     type="button"
-                    onClick={() => setMode("operacoes")}
+                    onClick={() => setModeSafe("operacoes")}
                     className={[
                       "px-4 py-2 text-sm rounded-lg transition",
                       mode === "operacoes"
@@ -187,11 +280,12 @@ export function LoginPage() {
                         : "text-slate-600 hover:text-slate-800",
                     ].join(" ")}
                   >
-                    Acesso Operações
+                    {t("auth.mode.operacoes")}
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setMode("admin")}
+                    onClick={() => setModeSafe("admin")}
                     className={[
                       "px-4 py-2 text-sm rounded-lg transition",
                       mode === "admin"
@@ -199,28 +293,29 @@ export function LoginPage() {
                         : "text-slate-600 hover:text-slate-800",
                     ].join(" ")}
                   >
-                    Acesso Administração
+                    {t("auth.mode.admin")}
                   </button>
                 </div>
 
                 {mode === "admin" ? (
                   <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    Apenas utilizadores com perfil <b>Owner</b> ou <b>Admin</b> devem usar este modo.
+                    {t("auth.mode.adminNotice")}
                   </div>
                 ) : null}
               </div>
 
-              {/* Error */}
-              {error ? (
+              {/* ✅ Error robusto */}
+              {visibleError ? (
                 <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
+                  {visibleError}
                 </div>
               ) : null}
 
               <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-                {/* Email */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">{t("auth.email")}</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    {t("auth.email")}
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                       <Mail className="h-5 w-5" />
@@ -228,8 +323,13 @@ export function LoginPage() {
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="seu@email.com"
+                      onChange={(e) => {
+                        const nextEmail = e.target.value;
+                        setEmail(nextEmail);
+                        clearAllErrors();
+                        if (rememberMe) applyRememberPreference(true, nextEmail);
+                      }}
+                      placeholder={t("auth.emailPlaceholder")}
                       autoComplete="email"
                       required
                       className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none"
@@ -245,9 +345,10 @@ export function LoginPage() {
                   </div>
                 </div>
 
-                {/* Password */}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">{t("auth.password")}</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    {t("auth.password")}
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                       <Lock className="h-5 w-5" />
@@ -256,8 +357,11 @@ export function LoginPage() {
                     <input
                       type={showPwd ? "text" : "password"}
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
+                      onChange={(e) => {
+                        setPassword(e.target.value);
+                        clearAllErrors();
+                      }}
+                      placeholder={t("auth.passwordPlaceholder")}
                       autoComplete="current-password"
                       required
                       className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 pr-12 text-slate-900 placeholder:text-slate-400 focus:outline-none"
@@ -275,15 +379,25 @@ export function LoginPage() {
                       type="button"
                       onClick={() => setShowPwd((v) => !v)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
-                      aria-label={showPwd ? "Ocultar palavra-passe" : "Mostrar palavra-passe"}
+                      aria-label={showPwd ? t("auth.passwordHide") : t("auth.passwordShow")}
                     >
                       {showPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                     </button>
                   </div>
 
                   <div className="mt-3 flex items-center justify-between">
+                    {/* ✅ lembrar-me funcional */}
                     <label className="inline-flex items-center gap-2 text-xs text-slate-500">
-                      <input type="checkbox" className="rounded border-slate-300" />
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300"
+                        checked={rememberMe}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setRememberMe(next);
+                          applyRememberPreference(next, email);
+                        }}
+                      />
                       {t("auth.remember")}
                     </label>
 
@@ -292,7 +406,7 @@ export function LoginPage() {
                         type="button"
                         className="text-xs font-medium hover:underline"
                         style={{ color: brand.blue }}
-                        onClick={() => alert("Fluxo de recuperação ainda não implementado.")}
+                        onClick={() => setSupportOpen(true)}
                       >
                         {t("auth.forgot")}
                       </button>
@@ -302,14 +416,13 @@ export function LoginPage() {
                   </div>
                 </div>
 
-                {/* Submit */}
                 <div className="pt-1">
-                  <Button type="submit" fullWidth loading={submitting}>
+                  <Button type="submit" fullWidth loading={submitting} disabled={submitting}>
                     {t("auth.login")}
                   </Button>
 
                   <div className="mt-4 text-center text-xs text-slate-500">
-                    Sistema interno Diâmetro • Acesso restrito
+                    {t("auth.footer")}
                   </div>
                 </div>
               </form>
@@ -317,6 +430,15 @@ export function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Modal de Apoio (Esqueceu a palavra-passe) */}
+      <SupportModal
+        open={supportOpen && mode === "operacoes"}
+        onClose={() => setSupportOpen(false)}
+        brandBlue={brand.blue}
+        phoneDisplay="+351 936 178 415"
+        phoneE164="+351936178415"
+      />
     </div>
   );
 }
@@ -341,26 +463,154 @@ function FeatureRow({
   );
 }
 
-/**
- * Compact language selector (top-right pill), matching the style of your 2nd screenshot.
- * Uses LanguageContext directly, so it works anywhere (including login).
- */
+function SupportModal({
+  open,
+  onClose,
+  brandBlue,
+  phoneDisplay,
+  phoneE164,
+}: {
+  open: boolean;
+  onClose: () => void;
+  brandBlue: string;
+  phoneDisplay: string;
+  phoneE164: string;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const t = window.setTimeout(() => {
+      panelRef.current?.focus();
+    }, 0);
+
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const waLink = `https://wa.me/${phoneE164.replace(/\D/g, "")}`;
+  const telLink = `tel:${phoneE164}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+        aria-label="Fechar"
+        onClick={onClose}
+      />
+
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Apoio"
+        className="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-white shadow-2xl outline-none"
+      >
+        <div
+          className="h-1 w-full"
+          style={{
+            background: `linear-gradient(90deg, ${brandBlue} 0%, ${brandBlue} 65%, #F5A623 100%)`,
+          }}
+        />
+
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Precisa de ajuda para recuperar o acesso?
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Fale com o suporte e informaremos o procedimento correto.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Fechar modal"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs text-slate-600">Contacto de apoio</p>
+            <p className="mt-1 text-base font-bold text-slate-900">{phoneDisplay}</p>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <a
+                href={telLink}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              >
+                <Phone className="h-4 w-4" />
+                Ligar
+              </a>
+
+              <a
+                href={waLink}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-white"
+                style={{ backgroundColor: brandBlue }}
+              >
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp
+              </a>
+            </div>
+
+            <p className="mt-3 text-[11px] text-slate-500">
+              Se preferir, copie o número e contacte pelo canal que usa no dia a dia.
+            </p>
+          </div>
+
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CornerLanguageSelector() {
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, t } = useLanguage();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const items: Array<{ value: Language; label: string; pill: string }> = useMemo(
     () => [
-      { value: "pt", label: "Português (PT)", pill: "PT  PT" },
-      { value: "pt-BR", label: "Português (BR)", pill: "PT  BR" },
-      { value: "en", label: "English", pill: "EN  US" },
-      { value: "es", label: "Español", pill: "ES  ES" },
-      { value: "fr", label: "Français", pill: "FR  FR" },
-      { value: "hi", label: "हिन्दी", pill: "HI  IN" },
-      { value: "ar", label: "العربية", pill: "AR  SA" },
+      { value: "pt", label: t("language.pt"), pill: "PT  PT" },
+      { value: "pt-BR", label: t("language.pt-BR"), pill: "PT  BR" },
+      { value: "en", label: t("language.en"), pill: "EN  US" },
+      { value: "es", label: t("language.es"), pill: "ES  ES" },
+      { value: "fr", label: t("language.fr"), pill: "FR  FR" },
+      { value: "hi", label: t("language.hi"), pill: "HI  IN" },
+      { value: "ar", label: t("language.ar"), pill: "AR  SA" },
     ],
-    []
+    [t]
   );
 
   const current = items.find((i) => i.value === language) ?? items[0];
@@ -411,7 +661,7 @@ function CornerLanguageSelector() {
           ].join(" ")}
         >
           <div className="px-3 py-2 text-xs text-white/60 border-b border-white/10">
-            Idioma
+            {t("language.menuTitle")}
           </div>
 
           <div className="py-1">

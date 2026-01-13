@@ -1,3 +1,4 @@
+// src/i18n/en.ts
 export default {
   // Common
   'common.save': 'Save',
@@ -34,6 +35,7 @@ export default {
   'language.hi': 'हिन्दी',
   'language.ar': 'العربية',
   'language.select': 'Select language',
+  'language.menuTitle': 'Language',
 
   // Auth
   'auth.login': 'Login',
@@ -47,6 +49,35 @@ export default {
   'auth.error': 'Invalid email or password',
   'auth.emailRequired': 'Email is required',
   'auth.passwordRequired': 'Password is required',
+
+  // Auth (Login Page extras)
+  'auth.mode.operacoes': 'Operations access',
+  'auth.mode.admin': 'Administration access',
+  'auth.mode.adminNotice':
+    'Only users with Owner or Admin profile should use this mode.',
+  'auth.emailPlaceholder': 'you@email.com',
+  'auth.passwordPlaceholder': '••••••••',
+  'auth.passwordShow': 'Show password',
+  'auth.passwordHide': 'Hide password',
+  'auth.recoveryNotImplemented': 'Password recovery flow is not implemented yet.',
+  'auth.footer': 'Diâmetro internal system • Restricted access',
+  'auth.loginErrorGeneric': 'Login error',
+
+  // Auth (Hero - left)
+  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandSubtitle': 'Worksites & Collaborators Management',
+  'auth.hero.headlineA': 'Professional plumbing',
+  'auth.hero.headlineB': 'with total control',
+  'auth.hero.description':
+    'Attendance, teams, payments and document validity — in a single panel, with audit and permissions.',
+  'auth.hero.feature1.title': 'Compliance and validity',
+  'auth.hero.feature1.desc': 'Alerts and history for critical documents.',
+  'auth.hero.feature2.title': 'Role-based access',
+  'auth.hero.feature2.desc': 'Administration and Operations with permissions.',
+
+  // Auth (Post-login notification)
+  'auth.notification.title': 'Welcome to Sistema Diâmetro',
+  'auth.notification.body': 'Hi {nome}! You have successfully logged in.',
 
   // Navigation
   'nav.dashboard': 'Dashboard',

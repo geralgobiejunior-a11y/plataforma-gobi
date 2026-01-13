@@ -24,6 +24,7 @@ import {
   Hash,
   User,
   ChevronRight,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -74,7 +75,7 @@ interface EmpresaRow {
   id: string;
   nome?: string | null;
   razao_social?: string | null;
-  logo_url?: string | null;
+  logo_url?: string | null; // pode ser URL http(s) OU path do storage
 }
 
 const BRAND = { blue: '#0B4F8A', orange: '#F5A623' };
@@ -172,6 +173,11 @@ function buildStoragePath(docId: string, fileName: string, entidadeTipo: string)
   return ext ? `${base}.${ext}` : base;
 }
 
+function buildEmpresaLogoPath(empresaId: string, fileName: string) {
+  const ext = safeFileExt(fileName) || 'png';
+  return `empresas/logos/${empresaId}.${ext}`;
+}
+
 async function uploadToStorage(path: string, file: File) {
   const { error: upErr } = await supabase.storage.from(STORAGE_BUCKET).upload(path, file, {
     upsert: true,
@@ -202,6 +208,57 @@ async function openArquivo(arquivoUrlOrPath: string) {
     return;
   }
   if (data?.signedUrl) window.open(data.signedUrl, '_blank');
+}
+
+/**
+ * Componente simples que aceita URL http(s) OU path do storage e resolve para imagem.
+ * Cache local por instância (bom para logos privados via signed URL).
+ */
+function SmartImage({
+  value,
+  alt,
+  className,
+  fallback,
+}: {
+  value: string | null | undefined;
+  alt: string;
+  className?: string;
+  fallback: React.ReactNode;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const v = String(value || '').trim();
+
+    (async () => {
+      if (!v) {
+        if (alive) setSrc(null);
+        return;
+      }
+      if (isHttpUrl(v)) {
+        if (alive) setSrc(v);
+        return;
+      }
+      // storage path -> signed url
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(v, 60 * 60);
+      if (!alive) return;
+      if (error) {
+        console.warn('SmartImage signed url erro:', error);
+        setSrc(null);
+        return;
+      }
+      setSrc(data?.signedUrl || null);
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [value]);
+
+  if (!src) return <>{fallback}</>;
+
+  return <img src={src} alt={alt} className={className} />;
 }
 
 function Segmented({
@@ -320,14 +377,17 @@ function NovaEmpresaModal({
 
     setSaving(true);
     try {
-      // Nota: não assumo colunas obrigatórias além de (nome/razao_social) opcionais.
-      // Se tua tabela exigir outras colunas, o Supabase vai devolver erro e tu vais ver exatamente qual.
       const payload: any = {
         nome: nome.trim() ? nome.trim() : null,
         razao_social: razao.trim() ? razao.trim() : null,
       };
 
-      const { data, error } = await supabase.from('empresas').insert(payload).select('id, nome, razao_social').single();
+      const { data, error } = await supabase
+        .from('empresas')
+        .insert(payload)
+        .select('id, nome, razao_social')
+        .single();
+
       if (error) throw error;
 
       const id = String((data as any)?.id || '');
@@ -367,7 +427,9 @@ function NovaEmpresaModal({
           <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
             <div>
               <div className="text-xs text-slate-500 dark:text-slate-400">Empresa</div>
-              <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">Criar nova empresa</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                Criar nova empresa
+              </div>
               <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                 Preenche pelo menos um dos campos (Nome ou Razão Social).
               </div>
@@ -384,7 +446,9 @@ function NovaEmpresaModal({
 
           <div className="p-5 space-y-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Nome (fantasia)</label>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                Nome (fantasia)
+              </label>
               <input
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
@@ -395,7 +459,9 @@ function NovaEmpresaModal({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Razão social</label>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                Razão social
+              </label>
               <input
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
@@ -411,6 +477,235 @@ function NovaEmpresaModal({
               </Button>
               <Button onClick={save} disabled={!canSave || saving}>
                 {saving ? 'A criar…' : 'Criar empresa'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Modal para editar empresa + trocar/remover logo */
+function EditEmpresaModal({
+  isOpen,
+  empresa,
+  onClose,
+  onSaved,
+}: {
+  isOpen: boolean;
+  empresa: EmpresaRow | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [nome, setNome] = useState('');
+  const [razao, setRazao] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !empresa) return;
+    setSaving(false);
+    setNome(String(empresa.nome || ''));
+    setRazao(String(empresa.razao_social || ''));
+    setFile(null);
+    if (fileRef.current) fileRef.current.value = '';
+  }, [isOpen, empresa?.id]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
+  if (!isOpen || !empresa) return null;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload: any = {
+        nome: nome.trim() ? nome.trim() : null,
+        razao_social: razao.trim() ? razao.trim() : null,
+      };
+
+      // 1) Update texto
+      const { error: upErr } = await supabase.from('empresas').update(payload).eq('id', empresa.id);
+      if (upErr) throw upErr;
+
+      // 2) Upload logo (opcional)
+      if (file) {
+        const path = buildEmpresaLogoPath(empresa.id, file.name);
+        const storedPath = await uploadToStorage(path, file);
+
+        const { error: logoErr } = await supabase
+          .from('empresas')
+          .update({ logo_url: storedPath })
+          .eq('id', empresa.id);
+
+        if (logoErr) throw logoErr;
+      }
+
+      await onSaved();
+      onClose();
+    } catch (e: any) {
+      console.error('Erro ao editar empresa:', e);
+      alert('Não foi possível salvar a empresa.\n\n' + (e?.message || 'Erro desconhecido'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('empresas').update({ logo_url: null }).eq('id', empresa.id);
+      if (error) throw error;
+      await onSaved();
+      onClose();
+    } catch (e: any) {
+      console.error('Erro ao remover logo:', e);
+      alert('Não foi possível remover o logo.\n\n' + (e?.message || 'Erro desconhecido'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="w-full max-w-[720px] bg-white dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+          <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs text-slate-500 dark:text-slate-400">Empresa</div>
+              <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100 truncate">
+                Editar: {String(empresa.nome || empresa.razao_social || empresa.id)}
+              </div>
+              <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Atualize os dados e troque o logo se necessário.
+              </div>
+            </div>
+
+            <button
+              className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-950/40"
+              onClick={onClose}
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                  Nome (fantasia)
+                </label>
+                <input
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                  placeholder='Ex: "Diâmetro"'
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">
+                  Razão social
+                </label>
+                <input
+                  value={razao}
+                  onChange={(e) => setRazao(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                  placeholder='Ex: "Diâmetro Canalizações Lda"'
+                />
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <ImageIcon size={16} />
+                    Logo da empresa
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Aceita PNG/JPG. O valor gravado em banco será o <span className="font-semibold">path</span> no storage.
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {empresa.logo_url && (
+                    <Button variant="secondary" onClick={removeLogo} disabled={saving}>
+                      <Trash2 size={16} className="mr-2" />
+                      Remover logo
+                    </Button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => fileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold transition
+                               bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40 disabled:opacity-60"
+                    disabled={saving}
+                  >
+                    <UploadCloud size={16} />
+                    Selecionar
+                  </button>
+
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 flex items-center gap-3">
+                <div className="h-14 w-14 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center overflow-hidden">
+                  {file ? (
+                    <img src={URL.createObjectURL(file)} alt="Pré-visualização" className="h-full w-full object-cover" />
+                  ) : (
+                    <SmartImage
+                      value={empresa.logo_url}
+                      alt="Logo"
+                      className="h-full w-full object-cover"
+                      fallback={<Building2 size={20} className="text-slate-600 dark:text-slate-300" />}
+                    />
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  {file ? (
+                    <div className="text-sm text-slate-800 dark:text-slate-100">
+                      <span className="font-semibold">Selecionado:</span> {file.name}{' '}
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
+                        ({Math.round(file.size / 1024)} KB)
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-500 dark:text-slate-400">
+                      Nenhuma alteração de logo selecionada.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-1 flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button onClick={save} disabled={saving}>
+                {saving ? 'A guardar…' : 'Guardar'}
               </Button>
             </div>
           </div>
@@ -591,9 +886,9 @@ function DocumentoModal({
             describe(uploadError)
         );
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro ao salvar documento:', e);
-      alert('Falha ao salvar metadados do documento.\n\n' + (e as any)?.message);
+      alert('Falha ao salvar metadados do documento.\n\n' + (e?.message || 'Erro desconhecido'));
     } finally {
       setSaving(false);
     }
@@ -888,6 +1183,10 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
   // Modal criar empresa
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
 
+  // Modal editar empresa
+  const [editEmpresaOpen, setEditEmpresaOpen] = useState(false);
+  const [editEmpresaTarget, setEditEmpresaTarget] = useState<EmpresaRow | null>(null);
+
   const loadDocumentos = async () => {
     setLoading(true);
 
@@ -938,7 +1237,6 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
       .limit(1000);
 
     if (r.error) {
-      // tabela pode não existir — mantém vazio
       setEmpresas([]);
       return [];
     }
@@ -1040,8 +1338,12 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
   }, [documentos, docsByScope, scope]);
 
   const filteredDocumentos = useMemo(() => {
-    const base = scope === 'todos' ? docsByScope : docsByEntity;
-    if (scope !== 'todos' && !selectedEntidadeId) return [];
+    const base =
+      scope === 'todos'
+        ? docsByScope
+        : selectedEntidadeId
+        ? docsByEntity
+        : [];
 
     const s = normalize(search);
 
@@ -1063,6 +1365,7 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
       const hay = [
         doc.nome || '',
         tipoNome,
+        doc.entidade_tipo || '',
         doc.entidade_nome || '',
         doc.entidade_id || '',
         doc.data_validade ? formatDatePT(doc.data_validade) : '',
@@ -1232,7 +1535,7 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
     } catch (e) {
       console.error('Erro ao enviar ficheiro no drawer:', e);
       alert(
-        'Não foi possível enviar o ficheiro.\n\nCheca:\n- policies do bucket documentos (INSERT/UPDATE)\n- se teu user passa em current_user_is_active()'
+        'Não foi possível enviar o ficheiro.\n\nCheca:\n- policies do bucket documentos (INSERT/UPDATE)\n- se teu user tem permissão no storage'
       );
     } finally {
       setDrawerUploading(false);
@@ -1317,6 +1620,11 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
       ? { tipo: scope as EntidadeTipo, id: selectedEntidadeId, nome: selectedLabel || null }
       : null;
 
+  const selectedEmpresaRow = useMemo(() => {
+    if (scope !== 'empresa' || !selectedEntidadeId) return null;
+    return empresas.find((e) => e.id === selectedEntidadeId) || null;
+  }, [scope, selectedEntidadeId, empresas]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSelectedDoc(null);
@@ -1342,7 +1650,7 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
           <div>
             <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">Documentos</div>
             <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Gestão por entidade: primeiro escolhe o colaborador/empresa, depois vê e gere os documentos.
+              Gestão por entidade: escolha o colaborador/empresa, depois visualize e gere os documentos.
             </div>
           </div>
 
@@ -1370,14 +1678,15 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
           <div className="mt-4 grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-3 lg:items-center">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">Selecionado:</div>
+
               <div
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold"
-                style={{
-                  borderColor: BRAND.blue + '33',
-                  background: BRAND.blue + '0D',
-                  color: BRAND.blue,
-                }}
+                className={[
+                  'inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-sm font-semibold',
+                  'bg-[#0B4F8A]/[0.06] border-[#0B4F8A]/25 text-slate-900 dark:text-slate-100',
+                  'dark:bg-[#0B4F8A]/10 dark:border-[#0B4F8A]/25',
+                ].join(' ')}
               >
+                <span className="h-2 w-2 rounded-full" style={{ background: BRAND.blue }} />
                 {selectedEntidadeId ? (selectedLabel || selectedEntidadeId) : 'Nenhum'}
               </div>
 
@@ -1400,15 +1709,36 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                   Limpar
                 </button>
               )}
+
+              {scope === 'empresa' && selectedEmpresaRow && (
+                <button
+                  onClick={() => {
+                    setEditEmpresaTarget(selectedEmpresaRow);
+                    setEditEmpresaOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 text-sm font-semibold
+                             hover:bg-slate-50 dark:hover:bg-slate-950/40 text-slate-700 dark:text-slate-200"
+                  title="Editar empresa"
+                >
+                  <Edit3 size={16} />
+                  Editar empresa
+                </button>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={async () => { await Promise.all([loadDocumentos(), loadEmpresas(), loadColaboradores()]); }}>
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await Promise.all([loadDocumentos(), loadEmpresas(), loadColaboradores()]);
+                }}
+              >
                 Atualizar
               </Button>
-              <Button onClick={openNew} disabled={!selectedEntidadeId}>
+
+              <Button onClick={openNew} disabled={scope !== 'todos' && !selectedEntidadeId}>
                 <Plus size={16} className="mr-2" />
-                Novo documento p/ {scope}
+                {scope === 'todos' ? 'Novo documento' : `Novo documento p/ ${scope}`}
               </Button>
             </div>
           </div>
@@ -1482,6 +1812,7 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
         </Card>
       </div>
 
+      {/* ======== MODO: COLAB/EMPRESA (com lista de entidades) ======== */}
       {showEntityFlow ? (
         <div className="grid grid-cols-1 xl:grid-cols-[420px_minmax(0,1fr)] gap-4">
           <Card className={`p-5 ${cardBase}`}>
@@ -1515,6 +1846,13 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                   const st = colabStats.get(c.id) || emptyStats();
                   const active = selectedEntidadeId === c.id;
 
+                  const cardCls = active
+                    ? [
+                        'border-[#0B4F8A]/35 bg-[#0B4F8A]/[0.06] ring-1 ring-[#0B4F8A]/20',
+                        'dark:border-[#0B4F8A]/35 dark:bg-[#0B4F8A]/10 dark:ring-[#0B4F8A]/25',
+                      ].join(' ')
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40';
+
                   return (
                     <button
                       key={c.id}
@@ -1531,46 +1869,48 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                       }}
                       className={[
                         'w-full text-left p-3 rounded-2xl border transition flex items-center gap-3',
-                        active
-                          ? 'border-slate-900 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
-                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40',
+                        'focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/25',
+                        cardCls,
                       ].join(' ')}
                       title="Selecionar colaborador"
                     >
                       <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center overflow-hidden">
-                        {c.foto_url ? (
-                          <img src={c.foto_url} alt={c.nome_completo} className="h-full w-full object-cover" />
-                        ) : (
-                          <User size={18} className={active ? 'text-white/90 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'} />
-                        )}
+                        <SmartImage
+                          value={c.foto_url}
+                          alt={c.nome_completo}
+                          className="h-full w-full object-cover"
+                          fallback={<User size={18} className="text-slate-600 dark:text-slate-300" />}
+                        />
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold truncate">{c.nome_completo}</div>
-                        <div className={['text-xs mt-0.5 truncate', active ? 'text-white/80 dark:text-slate-600' : 'text-slate-500 dark:text-slate-400'].join(' ')}>
+                        <div className={['font-semibold truncate', active ? 'text-slate-900 dark:text-slate-100' : 'text-slate-900 dark:text-slate-100'].join(' ')}>
+                          {c.nome_completo}
+                        </div>
+                        <div className={['text-xs mt-0.5 truncate', active ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400'].join(' ')}>
                           {c.categoria || '—'} {c.status ? `• ${c.status}` : ''}
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-2">
                           {st.vencido > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-red-200 bg-red-50 text-red-700 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-200">
                               Vencidos: {st.vencido}
                             </span>
                           )}
                           {st.a_vencer > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200">
                               A vencer: {st.a_vencer}
                             </span>
                           )}
                           {st.sem_documento > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200">
                               Sem ficheiro: {st.sem_documento}
                             </span>
                           )}
                         </div>
                       </div>
 
-                      <ChevronRight size={18} className={active ? 'text-white/90 dark:text-slate-900' : 'text-slate-400 dark:text-slate-500'} />
+                      <ChevronRight size={18} className={active ? 'text-[#0B4F8A]' : 'text-slate-400 dark:text-slate-500'} />
                     </button>
                   );
                 })}
@@ -1580,6 +1920,13 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                   const st = empresaStats.get(e.id) || emptyStats();
                   const active = selectedEntidadeId === e.id;
                   const label = String(e.nome || e.razao_social || e.id);
+
+                  const cardCls = active
+                    ? [
+                        'border-[#0B4F8A]/35 bg-[#0B4F8A]/[0.06] ring-1 ring-[#0B4F8A]/20',
+                        'dark:border-[#0B4F8A]/35 dark:bg-[#0B4F8A]/10 dark:ring-[#0B4F8A]/25',
+                      ].join(' ')
+                    : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40';
 
                   return (
                     <button
@@ -1597,46 +1944,60 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                       }}
                       className={[
                         'w-full text-left p-3 rounded-2xl border transition flex items-center gap-3',
-                        active
-                          ? 'border-slate-900 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
-                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/40',
+                        'focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/25',
+                        cardCls,
                       ].join(' ')}
                       title="Selecionar empresa"
                     >
                       <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center overflow-hidden">
-                        {e.logo_url ? (
-                          <img src={e.logo_url} alt={label} className="h-full w-full object-cover" />
-                        ) : (
-                          <Building2 size={18} className={active ? 'text-white/90 dark:text-slate-900' : 'text-slate-600 dark:text-slate-300'} />
-                        )}
+                        <SmartImage
+                          value={e.logo_url}
+                          alt={label}
+                          className="h-full w-full object-cover"
+                          fallback={<Building2 size={18} className="text-slate-600 dark:text-slate-300" />}
+                        />
                       </div>
 
                       <div className="min-w-0 flex-1">
-                        <div className="font-semibold truncate">{label}</div>
-                        <div className={['text-xs mt-0.5 truncate', active ? 'text-white/80 dark:text-slate-600' : 'text-slate-500 dark:text-slate-400'].join(' ')}>
+                        <div className="font-semibold truncate text-slate-900 dark:text-slate-100">{label}</div>
+                        <div className={['text-xs mt-0.5 truncate', active ? 'text-slate-600 dark:text-slate-300' : 'text-slate-500 dark:text-slate-400'].join(' ')}>
                           ID: <span className="font-mono">{e.id}</span>
                         </div>
 
                         <div className="mt-2 flex flex-wrap gap-2">
                           {st.vencido > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-red-200 bg-red-50 text-red-700 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-red-200 bg-red-50 text-red-700 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-200">
                               Vencidos: {st.vencido}
                             </span>
                           )}
                           {st.a_vencer > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200">
                               A vencer: {st.a_vencer}
                             </span>
                           )}
                           {st.sem_documento > 0 && (
-                            <span className={['px-2 py-0.5 rounded-full text-xs font-semibold border', active ? 'border-white/20 bg-white/10' : 'border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200'].join(' ')}>
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:border-amber-500/20 dark:text-amber-200">
                               Sem ficheiro: {st.sem_documento}
                             </span>
                           )}
                         </div>
                       </div>
 
-                      <ChevronRight size={18} className={active ? 'text-white/90 dark:text-slate-900' : 'text-slate-400 dark:text-slate-500'} />
+                      {/* ações à direita */}
+                      <div className="flex items-center gap-1" onClick={(ev) => ev.stopPropagation()}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Editar empresa"
+                          onClick={() => {
+                            setEditEmpresaTarget(e);
+                            setEditEmpresaOpen(true);
+                          }}
+                        >
+                          <Edit3 size={16} />
+                        </Button>
+                        <ChevronRight size={18} className={active ? 'text-[#0B4F8A]' : 'text-slate-400 dark:text-slate-500'} />
+                      </div>
                     </button>
                   );
                 })}
@@ -1922,11 +2283,17 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
           </Card>
         </div>
       ) : (
+        /* ======== MODO: TODOS (LISTA COMPLETA) ======== */
         <Card className={`p-5 ${cardBase}`}>
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Todos os documentos</div>
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" onClick={exportCSV}>
+          <div className="flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
+            <div>
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">Todos os documentos</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Lista completa (colaboradores + empresas), com filtros e exportação.
+              </div>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <Button variant="secondary" onClick={exportCSV} disabled={filteredDocumentos.length === 0}>
                 Exportar CSV
               </Button>
               <Button variant="secondary" onClick={loadDocumentos}>
@@ -1939,12 +2306,246 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
             </div>
           </div>
 
-          <div className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            No modo “Todos”, os documentos aparecem sem seleção de entidade. Para organizar, use “Colaboradores” ou “Empresa”.
+          <div className="mt-4 flex flex-col xl:flex-row gap-4 xl:items-center xl:justify-between">
+            <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+              <div className="relative w-full lg:w-[420px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
+                <input
+                  type="text"
+                  placeholder="Pesquisar em todos… (doc, tipo, entidade, validade, ficheiro)"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                />
+              </div>
+
+              <div className="flex items-center flex-wrap gap-2">
+                <Filter size={18} className="text-slate-400 dark:text-slate-500" />
+
+                <select
+                  value={tipoFilter}
+                  onChange={(e) => setTipoFilter(e.target.value)}
+                  className="px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent min-w-[210px] dark:text-slate-100"
+                >
+                  <option value="todos">Todos os tipos</option>
+                  {tiposOptions.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-2">
+                  <CalendarDays size={18} className="text-slate-400 dark:text-slate-500" />
+                  <input
+                    type="month"
+                    value={validadeMes}
+                    onChange={(e) => setValidadeMes(e.target.value)}
+                    className="px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent min-w-[170px] dark:text-slate-100"
+                    title="Filtrar por mês de validade"
+                  />
+                </div>
+
+                {(tipoFilter !== 'todos' || search.trim() || validadeMes) && (
+                  <button
+                    onClick={() => {
+                      setTipoFilter('todos');
+                      setSearch('');
+                      setValidadeMes('');
+                    }}
+                    className="inline-flex items-center gap-2 px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-sm
+                             hover:bg-slate-50 dark:hover:bg-slate-950/40 text-slate-700 dark:text-slate-200"
+                    title="Limpar filtros"
+                  >
+                    <X size={16} />
+                    Limpar
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <StatusTab id="todos" label="Todos" count={stats.total} />
+            <StatusTab id="sem_documento" label="Sem documento" count={stats.semDocumento} />
+            <StatusTab id="vencido" label="Vencidos" count={stats.vencidos} />
+            <StatusTab id="a_vencer" label="A vencer" count={stats.aVencer} />
+            <StatusTab id="valido" label="Válidos" count={stats.validos} />
+            <StatusTab id="sem_validade" label="Sem validade" count={stats.semValidade} />
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[1250px]">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800/70">
+                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Documento
+                  </th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Tipo
+                  </th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Entidade
+                  </th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Validade
+                  </th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Status
+                  </th>
+                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                {filteredDocumentos.map((doc) => {
+                  const st = getDocumentoStatus(doc);
+                  const cfg = getStatusConfig(st);
+                  const Icon = cfg.icon;
+                  const urg = urgencyLabel(doc);
+
+                  const urgCls =
+                    urg.tone === 'danger'
+                      ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-200 dark:border-red-500/20'
+                      : urg.tone === 'warning'
+                      ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/20'
+                      : urg.tone === 'ok'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/30 dark:text-slate-200 dark:border-slate-800';
+
+                  const rowStripe =
+                    st === 'sem_documento'
+                      ? 'before:bg-amber-500'
+                      : st === 'vencido'
+                      ? 'before:bg-red-500'
+                      : st === 'a_vencer'
+                      ? 'before:bg-amber-500'
+                      : st === 'valido'
+                      ? 'before:bg-emerald-500'
+                      : 'before:bg-slate-300';
+
+                  const tipoNome = doc.tipos_documento?.nome || doc.tipo || '—';
+                  const entidadeNome = doc.entidade_nome || doc.entidade_id;
+
+                  return (
+                    <tr
+                      key={doc.id}
+                      className={[
+                        'hover:bg-slate-50 dark:hover:bg-slate-950/40 cursor-pointer relative',
+                        'before:content-[""] before:absolute before:left-0 before:top-0 before:h-full before:w-1',
+                        rowStripe,
+                      ].join(' ')}
+                      onClick={() => openDocDrawer(doc)}
+                      title="Abrir detalhes"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="flex items-start gap-3">
+                          <div
+                            className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center"
+                            style={{ boxShadow: '0 6px 20px rgba(2, 6, 23, 0.06)' }}
+                          >
+                            <FileText size={18} className="text-slate-600 dark:text-slate-300" />
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                              {doc.nome || '—'}
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold ${urgCls}`}>
+                                <Clock size={14} />
+                                {urg.text}
+                              </span>
+
+                              {doc.arquivo_url ? (
+                                <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/30 dark:text-slate-200 dark:border-slate-800">
+                                  <Paperclip size={14} />
+                                  Com ficheiro
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-semibold bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/20">
+                                  <UploadCloud size={14} />
+                                  Falta ficheiro
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300">{tipoNome}</td>
+
+                      <td className="py-3 px-4">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {asEntidadeNice(doc.entidade_tipo)}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {entidadeNome}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <CalendarDays size={14} className="text-slate-400 dark:text-slate-500" />
+                          {doc.data_validade ? formatDatePT(doc.data_validade) : 'Sem validade'}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <Badge variant={cfg.variant}>
+                          <Icon size={12} className="mr-1" />
+                          {cfg.label}
+                        </Badge>
+                      </td>
+
+                      <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="inline-flex items-center gap-1">
+                          {doc.arquivo_url ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openArquivo(String(doc.arquivo_url))}
+                              title="Abrir ficheiro"
+                            >
+                              <ExternalLink size={16} />
+                            </Button>
+                          ) : (
+                            <Button variant="ghost" size="sm" onClick={() => openDocDrawer(doc)} title="Subir ficheiro">
+                              <UploadCloud size={16} />
+                            </Button>
+                          )}
+
+                          <Button variant="ghost" size="sm" onClick={() => openDocDrawer(doc)} title="Ver">
+                            Ver
+                          </Button>
+
+                          <Button variant="ghost" size="sm" onClick={() => openEdit(doc)} title="Editar">
+                            <Edit3 size={16} />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {filteredDocumentos.length === 0 && (
+              <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                Nenhum documento encontrado (modo “Todos”).
+              </div>
+            )}
           </div>
         </Card>
       )}
 
+      {/* ======== DRAWER ======== */}
       {selectedDoc && (
         <>
           <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setSelectedDoc(null)} />
@@ -2157,6 +2758,18 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
           setTipoFilter('todos');
           setValidadeMes('');
           setSelectedDoc(null);
+        }}
+      />
+
+      <EditEmpresaModal
+        isOpen={editEmpresaOpen}
+        empresa={editEmpresaTarget}
+        onClose={() => {
+          setEditEmpresaOpen(false);
+          setEditEmpresaTarget(null);
+        }}
+        onSaved={async () => {
+          await loadEmpresas();
         }}
       />
     </div>
