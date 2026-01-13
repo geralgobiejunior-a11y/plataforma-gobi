@@ -35,9 +35,17 @@ export function NotificationDropdown() {
       }
     }
 
+    function handleEsc(event: KeyboardEvent) {
+      if (event.key === "Escape") setIsOpen(false);
+    }
+
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEsc);
+      return () => {
+        document.removeEventListener("mousedown", handleClickOutside);
+        document.removeEventListener("keydown", handleEsc);
+      };
     }
   }, [isOpen]);
 
@@ -73,13 +81,13 @@ export function NotificationDropdown() {
     };
   };
 
-  // ✅ ao marcar como lida, remove do dropdown imediatamente
+  // remove do dropdown imediatamente
   const handleMarkAsRead = async (notificationId: string) => {
     await markAsRead(notificationId);
     setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
   };
 
-  // ✅ ao marcar todas como lidas, limpa o dropdown
+  // limpa o dropdown
   const handleMarkAllAsRead = async () => {
     if (!user) return;
     await markAllAsRead(user.id);
@@ -110,17 +118,16 @@ export function NotificationDropdown() {
         className={[
           "relative inline-flex items-center justify-center h-10 w-10 rounded-xl border transition",
           "focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30",
-          // light
           "border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50",
-          // dark
           "dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:text-slate-100 dark:hover:bg-slate-800",
         ].join(" ")}
         aria-label="Notificações"
+        aria-expanded={isOpen ? true : false}
         type="button"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-red-500 text-white text-xs font-semibold flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 h-5 min-w-5 px-1 rounded-full bg-red-500 text-white text-xs font-semibold flex items-center justify-center">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -129,25 +136,31 @@ export function NotificationDropdown() {
       {isOpen && (
         <div
           className={[
-            "absolute right-0 mt-2 w-[420px] rounded-2xl shadow-xl z-50 overflow-hidden",
-            // light
+            // POSICIONAMENTO: no mobile vira “quase fullscreen”, no desktop fica dropdown normal
+            "absolute right-0 mt-2 z-50 overflow-hidden rounded-2xl shadow-xl",
+            "w-[calc(100vw-2rem)] sm:w-[420px]",
+            "max-w-[420px] sm:max-w-none",
+            // garante que em telas muito pequenas não encoste nas bordas
+            "mr-0 sm:mr-0",
+            // light/dark
             "bg-white border border-slate-200",
-            // dark
             "dark:bg-slate-900 dark:border-slate-800 dark:shadow-black/40",
           ].join(" ")}
+          role="dialog"
+          aria-label="Lista de notificações"
         >
           {/* Header */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-slate-900 dark:text-slate-100">Notificações</h3>
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">Notificações</h3>
               {unreadCount > 0 && (
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                   {unreadCount} não lida(s)
                 </p>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-shrink-0">
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllAsRead}
@@ -156,7 +169,8 @@ export function NotificationDropdown() {
                   type="button"
                 >
                   <CheckCheck size={14} />
-                  Marcar todas
+                  <span className="hidden sm:inline">Marcar todas</span>
+                  <span className="sm:hidden">Todas</span>
                 </button>
               )}
 
@@ -172,7 +186,7 @@ export function NotificationDropdown() {
           </div>
 
           {/* Body */}
-          <div className="max-h-[500px] overflow-y-auto">
+          <div className="max-h-[70vh] sm:max-h-[500px] overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center p-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A]" />
@@ -187,7 +201,6 @@ export function NotificationDropdown() {
                 {notifications.map((notification) => {
                   const icon = getNotificationIcon(notification.tipo);
                   const colorClass = getNotificationColor(notification.tipo);
-
                   const unreadBg = "bg-blue-50/30 dark:bg-[#0B4F8A]/10";
 
                   return (
@@ -199,7 +212,7 @@ export function NotificationDropdown() {
                         !notification.lida ? unreadBg : "",
                       ].join(" ")}
                     >
-                      <div className="flex gap-3">
+                      <div className="flex gap-3 min-w-0">
                         <div
                           className={[
                             "h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 text-lg",
@@ -213,9 +226,9 @@ export function NotificationDropdown() {
                           <div className="flex items-start justify-between gap-2">
                             <h4
                               className={[
-                                "text-sm font-semibold",
-                                "text-slate-900 dark:text-slate-100",
+                                "text-sm font-semibold text-slate-900 dark:text-slate-100",
                                 !notification.lida ? "font-bold" : "",
+                                "min-w-0 break-words",
                               ].join(" ")}
                             >
                               {notification.titulo}
@@ -248,8 +261,6 @@ export function NotificationDropdown() {
               </div>
             )}
           </div>
-
-          {/* Footer removido (sem "Ver todas as notificações") */}
         </div>
       )}
     </div>

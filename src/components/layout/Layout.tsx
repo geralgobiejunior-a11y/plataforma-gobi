@@ -1,5 +1,5 @@
 // src/components/layout/Layout.tsx
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 
@@ -20,6 +20,36 @@ export function Layout({
   subtitle,
   actions,
 }: LayoutProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Fecha menu ao trocar de página (garante UX boa no mobile)
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [currentPage]);
+
+  // ESC fecha + trava scroll no mobile quando aberto
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+
+    if (sidebarOpen) {
+      document.addEventListener("keydown", onKeyDown);
+      // trava scroll da página quando o drawer está aberto
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+
+      return () => {
+        document.removeEventListener("keydown", onKeyDown);
+        document.body.style.overflow = prevOverflow;
+      };
+    }
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sidebarOpen]);
+
   return (
     <div
       className="
@@ -34,19 +64,34 @@ export function Layout({
         <div className="absolute inset-0 bg-gradient-to-b from-white/40 dark:from-slate-950/40 to-transparent" />
       </div>
 
-      <Sidebar currentPage={currentPage} onNavigate={onNavigate} />
+      {/* Sidebar (drawer no mobile, fixo no desktop) */}
+      <Sidebar
+        currentPage={currentPage}
+        onNavigate={onNavigate}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
-      {/* IMPORTANT: pl baseado no mesmo width do Sidebar, em px via CSS var */}
+      {/* Overlay mobile */}
+      {sidebarOpen && (
+        <button
+          className="fixed inset-0 z-40 lg:hidden bg-black/45 backdrop-blur-[1px]"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Fechar menu"
+        />
+      )}
+
       <div className="lg:pl-[var(--sidebar-w)] min-w-0">
         <Header
           title={title}
           subtitle={subtitle}
           actions={actions}
           onNavigate={onNavigate}
+          onToggleSidebar={() => setSidebarOpen((v) => !v)}
+          sidebarOpen={sidebarOpen}
         />
 
         <main className="min-w-0 px-4 sm:px-6 lg:px-8 py-6">
-          {/* IMPORTANT: max-width em px (não em rem) para não “crescer” com zoom/font-size */}
           <div className="mx-auto w-full max-w-[1280px] 2xl:max-w-[1440px] min-w-0">
             {children}
           </div>

@@ -21,14 +21,11 @@ import {
   X,
 } from 'lucide-react';
 
-// Se você usa react-router, descomente e ajuste a rota do perfil conforme teu app.
-// import { useNavigate } from 'react-router-dom';
-
 interface ColaboradorPagamento {
   id: string;
   nome_completo: string;
   foto_url: string | null;
-  valor_hora_base: number | null; // mapeado de valor_hora ou valor_hora_base
+  valor_hora_base: number | null;
   iban: string | null;
 
   horas_total: number;
@@ -70,14 +67,8 @@ function periodRangeByClosingDay(year: number, month: number) {
   // month: 1..12 (mês de fecho)
   // Ex.: seleciona 2026-01 => 2025-12-24 até 2026-01-23
   const end = new Date(Date.UTC(year, month - 1, FECHO_DIA));
-  const start = new Date(Date.UTC(year, month - 2, INICIO_DIA)); // month-2 => mês anterior (Date.UTC ajusta ano automaticamente)
-
-  return {
-    startDate: start,
-    endDate: end,
-    startISO: toISODateUTC(start),
-    endISO: toISODateUTC(end),
-  };
+  const start = new Date(Date.UTC(year, month - 2, INICIO_DIA));
+  return { startDate: start, endDate: end, startISO: toISODateUTC(start), endISO: toISODateUTC(end) };
 }
 
 function formatDatePT(date?: string | null) {
@@ -112,9 +103,35 @@ function csvEscape(v: unknown) {
   return needs ? `"${inner}"` : inner;
 }
 
-export default function Pagamentos() {
-  // const navigate = useNavigate();
+function Pill({
+  tone = 'default',
+  children,
+  icon,
+  className = '',
+}: {
+  tone?: 'default' | 'warn' | 'danger';
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  className?: string;
+}) {
+  const base =
+    'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-semibold whitespace-nowrap';
+  const styles =
+    tone === 'danger'
+      ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-200'
+      : tone === 'warn'
+        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200'
+        : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-950/25 dark:text-slate-200';
 
+  return (
+    <span className={`${base} ${styles} ${className}`}>
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+export default function Pagamentos() {
   const now = new Date();
 
   // UI: seletor único mês (mês do FECHO, dia 23)
@@ -141,7 +158,7 @@ export default function Pagamentos() {
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState('');
-  const [colaboradorFilterId, setColaboradorFilterId] = useState<string>(''); // filtro por colaborador
+  const [colaboradorFilterId, setColaboradorFilterId] = useState<string>('');
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedColaborador, setSelectedColaborador] = useState<ColaboradorPagamento | null>(null);
@@ -149,7 +166,7 @@ export default function Pagamentos() {
   const [dailyDetails, setDailyDetails] = useState<DailyDetail[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
-  // Popover de obras
+  // Popover de obras (desktop)
   const [openObrasFor, setOpenObrasFor] = useState<string | null>(null);
 
   const monthNames = useMemo(
@@ -171,7 +188,6 @@ export default function Pagamentos() {
   );
 
   const periodoLabel = useMemo(() => {
-    // rótulo do período (pode atravessar mês/ano)
     return `${formatDatePT(rangeStartISO)} a ${formatDatePT(rangeEndISO)}`;
   }, [rangeStartISO, rangeEndISO]);
 
@@ -187,7 +203,8 @@ export default function Pagamentos() {
     return () => document.removeEventListener('click', onDocClick);
   }, [openObrasFor]);
 
-  const eur = (v: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(v);
+  const eur = (v: number) =>
+    new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(v);
 
   const getInitials = (name: string) => {
     const parts = String(name || '')
@@ -302,14 +319,10 @@ export default function Pagamentos() {
       list.sort((a, b) => b.total_pagar - a.total_pagar);
       setColaboradores(list);
 
-      // se o filtro selecionado não existir mais, limpa para não “sumir” tabela
       setColaboradorFilterId((prev) => (prev && !list.some((c) => c.id === prev) ? '' : prev));
     } catch (e: any) {
       console.error(e);
       toast.error('Erro ao carregar dados do financeiro');
-
-      // NOTA objetiva: se tua tabela presencas_dia NÃO tiver as colunas "faltou" / "justificacao_falta",
-      // este select vai falhar. Nesse caso, remove essas colunas do select e define outra regra para faltas.
       setColaboradores([]);
     } finally {
       setLoading(false);
@@ -318,13 +331,9 @@ export default function Pagamentos() {
 
   const filtered = useMemo(() => {
     const q = normalize(search);
-
     let list = colaboradores;
 
-    if (colaboradorFilterId) {
-      list = list.filter((c) => c.id === colaboradorFilterId);
-    }
-
+    if (colaboradorFilterId) list = list.filter((c) => c.id === colaboradorFilterId);
     if (!q) return list;
 
     return list.filter((c) => {
@@ -382,7 +391,10 @@ export default function Pagamentos() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(2, '0')}_${rangeStartISO}_a_${rangeEndISO}.csv`;
+    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(
+      2,
+      '0'
+    )}_${rangeStartISO}_a_${rangeEndISO}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -454,8 +466,8 @@ export default function Pagamentos() {
           if (!registosMap.has(pid)) registosMap.set(pid, { entrada: null, saida: null });
 
           const cur = registosMap.get(pid)!;
-          if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts; // primeira entrada
-          if (tipo === 'saida') cur.saida = ts; // última saída
+          if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts;
+          if (tipo === 'saida') cur.saida = ts;
         });
       }
 
@@ -494,7 +506,10 @@ export default function Pagamentos() {
   ) => (
     <Card className={`p-4 ${cardBase}`}>
       <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg" style={{ background: tone === 'warn' ? '#FEF3C7' : '#EFF6FF' }}>
+        <div
+          className="p-2 rounded-xl ring-1 ring-black/5 dark:ring-white/10"
+          style={{ background: tone === 'warn' ? '#FEF3C7' : '#EFF6FF' }}
+        >
           {icon}
         </div>
         <div className="min-w-0">
@@ -509,18 +524,19 @@ export default function Pagamentos() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
+      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Folha de Pagamento</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado), com horas, faltas e total a pagar.
+            Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado),
+            com horas, faltas e total a pagar.
           </p>
           <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
             Período atual: <span className="font-semibold">{periodoLabel}</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 justify-end">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 justify-end">
           <Button
             variant="secondary"
             onClick={exportCSV}
@@ -533,7 +549,7 @@ export default function Pagamentos() {
           <Button
             variant="secondary"
             onClick={() => toast.info('Exportação PDF: ligar quando você quiser')}
-            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+            className="hidden sm:inline-flex dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
           >
             <FileText size={16} className="mr-2" />
             Exportar PDF
@@ -550,7 +566,7 @@ export default function Pagamentos() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {kpiCard(<Euro size={20} className="text-emerald-700" />, 'Total a Pagar', eur(totals.totalPagar))}
         {kpiCard(<Clock size={20} className="text-blue-700" />, 'Total de Horas', `${totals.totalHoras.toFixed(1)}h`)}
         {kpiCard(<Calendar size={20} className="text-purple-700" />, 'Colaboradores', totals.totalColaboradores)}
@@ -564,32 +580,31 @@ export default function Pagamentos() {
       </div>
 
       {/* Lista principal */}
-      <Card className={`p-6 ${cardBase}`}>
+      <Card className={`p-4 sm:p-6 ${cardBase}`}>
         <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-6">
           {/* Período + filtros */}
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-            <div className="min-w-[280px]">
+            <div className="min-w-[260px]">
               <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                {monthNames[selectedMonth - 1]} {selectedYear} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(fecho dia {FECHO_DIA})</span>
+                {monthNames[selectedMonth - 1]} {selectedYear}{' '}
+                <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(fecho dia {FECHO_DIA})</span>
               </div>
               <div className="text-xs text-slate-600 dark:text-slate-400">
                 {formatDateShortPT(rangeStartISO)} a {formatDateShortPT(rangeEndISO)}
               </div>
             </div>
 
-            {/* seletor único mês */}
-            <div>
+            <div className="w-full sm:w-auto">
               <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Mês (fecho)</div>
               <Input
                 type="month"
                 value={periodo}
                 onChange={(e) => setPeriodo(e.target.value)}
-                className="min-w-[180px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                className="w-full sm:min-w-[180px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
               />
             </div>
 
-            {/* filtro por colaborador */}
-            <div>
+            <div className="w-full sm:w-auto">
               <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Colaborador</div>
               <Select
                 value={colaboradorFilterId}
@@ -601,7 +616,7 @@ export default function Pagamentos() {
                     .sort((a, b) => a.nome_completo.localeCompare(b.nome_completo))
                     .map((c) => ({ value: c.id, label: c.nome_completo })),
                 ]}
-                className="min-w-[260px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                className="w-full sm:min-w-[260px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
               />
             </div>
           </div>
@@ -635,216 +650,425 @@ export default function Pagamentos() {
             <p className="text-slate-600 dark:text-slate-400">Nenhum colaborador encontrado para este período</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px]">
-              <thead className="border-b border-slate-200 dark:border-slate-800/70">
-                <tr>
-                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Colaborador</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Horas</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Dias</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Faltas</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">€/Hora</th>
-                  <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Total</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">IBAN</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Obras</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Último registo</th>
-                  <th className="text-center py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">Ações</th>
-                </tr>
-              </thead>
+          <>
+            {/* MOBILE: cards */}
+            <div className="md:hidden space-y-3">
+              {filtered.map((c) => {
+                const missingRate = !c.valor_hora_base;
+                const missingIban = !c.iban;
 
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {filtered.map((c) => {
-                  const missingRate = !c.valor_hora_base;
-                  const missingIban = !c.iban;
+                const obras = c.obras_trabalhadas || [];
+                const showObras = obras.slice(0, 2);
+                const remaining = Math.max(0, obras.length - showObras.length);
 
-                  const obras = c.obras_trabalhadas || [];
-                  const obraPrincipal = obras[0] || null;
-                  const restantes = obras.length > 1 ? obras.slice(1) : [];
-
-                  return (
-                    <tr
-                      key={c.id}
-                      className="hover:bg-slate-50 transition dark:hover:bg-slate-950/35 cursor-pointer"
-                      onClick={() => openDetails(c)}
-                      title="Abrir detalhes"
-                    >
-                      <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-3">
-                          {c.foto_url ? (
-                            <img
-                              src={c.foto_url}
-                              alt={c.nome_completo}
-                              className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-800"
-                            />
-                          ) : (
-                            <div
-                              className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-semibold"
-                              style={{ background: BRAND.blue }}
-                            >
-                              {getInitials(c.nome_completo)}
-                            </div>
-                          )}
-
-                          <div className="min-w-0">
-                            <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{c.nome_completo}</div>
-                            <div className="mt-1 flex flex-wrap gap-2">
-                              {missingRate && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-                                  <AlertTriangle size={12} />
-                                  Sem valor/h
-                                </span>
-                              )}
-                              {missingIban && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-                                  <AlertTriangle size={12} />
-                                  Sem IBAN
-                                </span>
-                              )}
-                            </div>
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => openDetails(c)}
+                    className={[
+                      'w-full text-left rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition',
+                      'hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30',
+                      'dark:border-slate-800/70 dark:bg-slate-900/60 dark:hover:bg-slate-900/70',
+                    ].join(' ')}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {c.foto_url ? (
+                          <img
+                            src={c.foto_url}
+                            alt={c.nome_completo}
+                            className="w-11 h-11 rounded-2xl object-cover border border-slate-200 dark:border-slate-800"
+                          />
+                        ) : (
+                          <div
+                            className="w-11 h-11 rounded-2xl text-white flex items-center justify-center font-semibold"
+                            style={{ background: BRAND.blue }}
+                          >
+                            {getInitials(c.nome_completo)}
                           </div>
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-4 text-right font-semibold text-slate-900 dark:text-slate-100">
-                        {c.horas_total.toFixed(1)}h
-                      </td>
-
-                      <td className="py-3 px-4 text-right text-slate-700 dark:text-slate-300">{c.dias_trabalhados}</td>
-
-                      <td className="py-3 px-4 text-right text-slate-700 dark:text-slate-300">{c.faltas}</td>
-
-                      <td className="py-3 px-4 text-right">
-                        {c.valor_hora_base ? (
-                          <span className="font-semibold text-slate-900 dark:text-slate-100">{eur(c.valor_hora_base)}</span>
-                        ) : (
-                          <span className="text-amber-700 dark:text-amber-300 text-xs font-semibold">N/A</span>
                         )}
-                      </td>
 
-                      <td className="py-3 px-4 text-right">
-                        <span className="font-bold text-emerald-700 dark:text-emerald-300">{eur(c.total_pagar)}</span>
-                      </td>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{c.nome_completo}</div>
 
-                      <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                        {c.iban ? (
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs text-slate-700 dark:text-slate-300 truncate max-w-[190px]">
-                              {c.iban}
-                            </span>
-                            <button
-                              onClick={() => copyIBAN(c.iban!)}
-                              className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
-                              title="Copiar IBAN"
-                            >
-                              <Copy size={14} className="text-slate-600 dark:text-slate-300" />
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
-                        )}
-                      </td>
-
-                      {/* Obras com popover */}
-                      <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
-                        {obras.length === 0 ? (
-                          <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
-                        ) : (
-                          <div className="relative inline-flex items-center gap-2">
-                            <Badge variant="default" className="text-xs">
-                              {obraPrincipal}
-                            </Badge>
-
-                            {restantes.length > 0 && (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenObrasFor((prev) => (prev === c.id ? null : c.id));
-                                  }}
-                                  className="px-2 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/30 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-950/45"
-                                  title="Ver todas as obras"
-                                >
-                                  +{restantes.length}
-                                </button>
-
-                                {openObrasFor === c.id && (
-                                  <div
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="absolute left-0 top-[110%] z-20 w-[320px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg"
-                                  >
-                                    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 dark:border-slate-800/70">
-                                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Obras no período</div>
-                                      <button
-                                        className="h-7 w-7 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
-                                        onClick={() => setOpenObrasFor(null)}
-                                        aria-label="Fechar obras"
-                                        title="Fechar"
-                                      >
-                                        <X size={14} className="text-slate-600 dark:text-slate-300" />
-                                      </button>
-                                    </div>
-
-                                    <div className="max-h-[220px] overflow-auto p-3 space-y-2">
-                                      {obras.map((o, i) => (
-                                        <div key={`${c.id}-obra-pop-${i}`} className="text-sm text-slate-700 dark:text-slate-300">
-                                          • {o}
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {missingRate && (
+                              <Pill tone="warn" icon={<AlertTriangle size={12} />}>
+                                Sem valor/h
+                              </Pill>
+                            )}
+                            {missingIban && (
+                              <Pill tone="warn" icon={<AlertTriangle size={12} />}>
+                                Sem IBAN
+                              </Pill>
                             )}
                           </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
+                        <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
+                          {eur(c.total_pagar)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800/70 dark:bg-slate-950/25">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">Horas</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.horas_total.toFixed(1)}h</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800/70 dark:bg-slate-950/25">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">Dias</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.dias_trabalhados}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-800/70 dark:bg-slate-950/25">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">Faltas</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{c.faltas}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">€/Hora</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {c.valor_hora_base ? eur(c.valor_hora_base) : 'N/A'}
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">Último</div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {c.ultimo_registro ? formatDateShortPT(c.ultimo_registro) : '—'}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {c.iban ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyIBAN(c.iban!);
+                            }}
+                            className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
+                            title="Copiar IBAN"
+                          >
+                            <Copy size={16} className="text-slate-700 dark:text-slate-200" />
+                          </button>
+                        ) : (
+                          <div
+                            className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-500"
+                            title="Sem IBAN"
+                          >
+                            <Copy size={16} />
+                          </div>
                         )}
-                      </td>
 
-                      <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-300">
-                        {c.ultimo_registro ? formatDatePT(c.ultimo_registro) : '—'}
-                      </td>
-
-                      <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => openDetails(c)}
-                          className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                        <div
+                          className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center"
+                          title="Ver detalhes"
                         >
-                          <Eye size={14} className="mr-1" />
-                          Ver
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <Eye size={16} className="text-slate-700 dark:text-slate-200" />
+                        </div>
+                      </div>
+                    </div>
 
-            {/* Rodapé de totais */}
-            <div className="mt-5 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="text-sm text-slate-700 dark:text-slate-300">
-                <span className="font-semibold">{filtered.length}</span> colaborador(es) •{' '}
-                <span className="font-semibold">{totals.totalHoras.toFixed(1)}h</span> •{' '}
-                <span className="font-semibold">{totals.totalDias}</span> dias •{' '}
-                <span className="font-semibold">{totals.faltas}</span> faltas
-              </div>
+                    {obras.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Obras</div>
+                        <div className="flex flex-wrap gap-2">
+                          {showObras.map((o, i) => (
+                            <Badge key={`${c.id}-mobra-${i}`} variant="default" className="text-xs">
+                              {o}
+                            </Badge>
+                          ))}
+                          {remaining > 0 && <span className="text-xs text-slate-500 dark:text-slate-400">+{remaining}</span>}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
 
-              <div className="text-sm text-slate-700 dark:text-slate-300">
-                Total a pagar:{' '}
-                <span className="font-bold text-emerald-700 dark:text-emerald-300">{eur(totals.totalPagar)}</span>
+              {/* Totais (mobile) */}
+              <div className="mt-2 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25">
+                <div className="text-sm text-slate-700 dark:text-slate-300">
+                  <span className="font-semibold">{filtered.length}</span> colaborador(es) •{' '}
+                  <span className="font-semibold">{totals.totalHoras.toFixed(1)}h</span> •{' '}
+                  <span className="font-semibold">{totals.totalDias}</span> dias •{' '}
+                  <span className="font-semibold">{totals.faltas}</span> faltas
+                </div>
+                <div className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+                  Total a pagar:{' '}
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">{eur(totals.totalPagar)}</span>
+                </div>
               </div>
             </div>
-          </div>
+
+            {/* DESKTOP: tabela */}
+            <div className="hidden md:block overflow-x-auto">
+              {/* DICA: AÇÕES sticky à direita + colunas pesadas só em xl+ */}
+              <table className="w-full min-w-[980px]">
+                <thead className="border-b border-slate-200 dark:border-slate-800/70">
+                  <tr>
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Colaborador
+                    </th>
+
+                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Horas
+                    </th>
+
+                    <th className="hidden lg:table-cell text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Dias
+                    </th>
+
+                    <th className="hidden lg:table-cell text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Faltas
+                    </th>
+
+                    <th className="hidden lg:table-cell text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      €/Hora
+                    </th>
+
+                    <th className="text-right py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Total
+                    </th>
+
+                    <th className="hidden xl:table-cell text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      IBAN
+                    </th>
+
+                    <th className="hidden xl:table-cell text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Obras
+                    </th>
+
+                    <th className="hidden xl:table-cell text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Último registo
+                    </th>
+
+                    <th className="text-left py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                      Pendências
+                    </th>
+
+                    <th
+                      className="sticky right-0 z-10 text-center py-3 px-4 text-xs font-semibold uppercase tracking-wider text-slate-600 dark:text-slate-300
+                                 bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800/70"
+                    >
+                      Ações
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
+                  {filtered.map((c) => {
+                    const missingRate = !c.valor_hora_base;
+                    const missingIban = !c.iban;
+
+                    const obras = c.obras_trabalhadas || [];
+                    const obraPrincipal = obras[0] || null;
+                    const restantes = obras.length > 1 ? obras.slice(1) : [];
+
+                    return (
+                      <tr
+                        key={c.id}
+                        className="hover:bg-slate-50 transition dark:hover:bg-slate-950/35 cursor-pointer"
+                        onClick={() => openDetails(c)}
+                        title="Abrir detalhes"
+                      >
+                        <td className="py-2.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center gap-3">
+                            {c.foto_url ? (
+                              <img
+                                src={c.foto_url}
+                                alt={c.nome_completo}
+                                className="w-10 h-10 rounded-xl object-cover border border-slate-200 dark:border-slate-800"
+                              />
+                            ) : (
+                              <div
+                                className="w-10 h-10 rounded-xl text-white flex items-center justify-center font-semibold"
+                                style={{ background: BRAND.blue }}
+                              >
+                                {getInitials(c.nome_completo)}
+                              </div>
+                            )}
+
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {c.nome_completo}
+                              </div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">
+                                {formatDateShortPT(rangeStartISO)}–{formatDateShortPT(rangeEndISO)}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="py-2.5 px-4 text-right font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {c.horas_total.toFixed(1)}h
+                        </td>
+
+                        <td className="hidden lg:table-cell py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                          {c.dias_trabalhados}
+                        </td>
+
+                        <td className="hidden lg:table-cell py-2.5 px-4 text-right text-slate-700 dark:text-slate-300 tabular-nums">
+                          {c.faltas}
+                        </td>
+
+                        <td className="hidden lg:table-cell py-2.5 px-4 text-right tabular-nums">
+                          {c.valor_hora_base ? (
+                            <span className="font-semibold text-slate-900 dark:text-slate-100">{eur(c.valor_hora_base)}</span>
+                          ) : (
+                            <span className="text-amber-700 dark:text-amber-300 text-xs font-semibold">N/A</span>
+                          )}
+                        </td>
+
+                        <td className="py-2.5 px-4 text-right tabular-nums">
+                          <span className="font-bold text-emerald-700 dark:text-emerald-300">{eur(c.total_pagar)}</span>
+                        </td>
+
+                        <td className="hidden xl:table-cell py-2.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          {c.iban ? (
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-slate-700 dark:text-slate-300 truncate max-w-[190px]">
+                                {c.iban}
+                              </span>
+                              <button
+                                onClick={() => copyIBAN(c.iban!)}
+                                className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
+                                title="Copiar IBAN"
+                              >
+                                <Copy size={14} className="text-slate-600 dark:text-slate-300" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                          )}
+                        </td>
+
+                        <td className="hidden xl:table-cell py-2.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          {obras.length === 0 ? (
+                            <span className="text-slate-400 dark:text-slate-500 text-sm">—</span>
+                          ) : (
+                            <div className="relative inline-flex items-center gap-2">
+                              <Badge variant="default" className="text-xs">
+                                {obraPrincipal}
+                              </Badge>
+
+                              {restantes.length > 0 && (
+                                <>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenObrasFor((prev) => (prev === c.id ? null : c.id));
+                                    }}
+                                    className="px-2 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/30 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-950/45"
+                                    title="Ver todas as obras"
+                                  >
+                                    +{restantes.length}
+                                  </button>
+
+                                  {openObrasFor === c.id && (
+                                    <div
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="absolute left-0 top-[110%] z-20 w-[320px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg"
+                                    >
+                                      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 dark:border-slate-800/70">
+                                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Obras no período</div>
+                                        <button
+                                          className="h-7 w-7 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
+                                          onClick={() => setOpenObrasFor(null)}
+                                          aria-label="Fechar obras"
+                                          title="Fechar"
+                                        >
+                                          <X size={14} className="text-slate-600 dark:text-slate-300" />
+                                        </button>
+                                      </div>
+
+                                      <div className="max-h-[220px] overflow-auto p-3 space-y-2">
+                                        {obras.map((o, i) => (
+                                          <div key={`${c.id}-obra-pop-${i}`} className="text-sm text-slate-700 dark:text-slate-300">
+                                            • {o}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="hidden xl:table-cell py-2.5 px-4 text-sm text-slate-700 dark:text-slate-300">
+                          {c.ultimo_registro ? formatDatePT(c.ultimo_registro) : '—'}
+                        </td>
+
+                        <td className="py-2.5 px-4" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap gap-2">
+                            {missingRate && (
+                              <Pill tone="warn" icon={<AlertTriangle size={12} />}>
+                                Sem valor/h
+                              </Pill>
+                            )}
+                            {missingIban && (
+                              <Pill tone="warn" icon={<AlertTriangle size={12} />}>
+                                Sem IBAN
+                              </Pill>
+                            )}
+                            {!missingRate && !missingIban && <Pill>OK</Pill>}
+                          </div>
+                        </td>
+
+                        <td
+                          className="sticky right-0 z-10 py-2.5 px-4 text-center bg-white dark:bg-slate-950
+                                     border-l border-slate-200 dark:border-slate-800/70"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => openDetails(c)}
+                            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                          >
+                            <Eye size={14} className="mr-1" />
+                            Ver
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div className="mt-5 p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="text-sm text-slate-700 dark:text-slate-300">
+                  <span className="font-semibold">{filtered.length}</span> colaborador(es) •{' '}
+                  <span className="font-semibold">{totals.totalHoras.toFixed(1)}h</span> •{' '}
+                  <span className="font-semibold">{totals.totalDias}</span> dias •{' '}
+                  <span className="font-semibold">{totals.faltas}</span> faltas
+                </div>
+
+                <div className="text-sm text-slate-700 dark:text-slate-300">
+                  Total a pagar:{' '}
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">{eur(totals.totalPagar)}</span>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </Card>
 
-      {/* Drawer Detalhes */}
+      {/* Drawer Detalhes (mantive igual, só ajustes pequenos) */}
       {drawerOpen && selectedColaborador && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={closeDrawer} />
 
           <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-950 shadow-2xl border-l border-slate-200 dark:border-slate-800 overflow-y-auto">
-            {/* Header drawer */}
             <div className="sticky top-0 bg-white dark:bg-slate-950 z-10 border-b border-slate-200 dark:border-slate-800 p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-4 min-w-0">
@@ -877,8 +1101,6 @@ export default function Pagamentos() {
                     size="sm"
                     variant="secondary"
                     onClick={() => {
-                      // Ajuste para a rota real do teu sistema
-                      // navigate(`/colaboradores/${selectedColaborador.id}`);
                       toast.info('Configurar rota do perfil (ex.: /colaboradores/:id)');
                     }}
                     className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
@@ -898,7 +1120,6 @@ export default function Pagamentos() {
                 </div>
               </div>
 
-              {/* Cards resumo */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
                 <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
                   <div className="text-xs text-slate-600 dark:text-slate-400">Horas</div>
@@ -929,7 +1150,6 @@ export default function Pagamentos() {
                 </div>
               </div>
 
-              {/* IBAN */}
               <div className="mt-4">
                 {selectedColaborador.iban ? (
                   <div className="p-3 rounded-xl border border-blue-200 dark:border-blue-500/25 bg-blue-50 dark:bg-blue-500/10 flex items-center justify-between gap-3">
@@ -957,9 +1177,7 @@ export default function Pagamentos() {
               </div>
             </div>
 
-            {/* Body drawer */}
             <div className="p-6 space-y-6">
-              {/* Obras */}
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Obras no período</h3>
                 {selectedColaborador.obras_trabalhadas.length === 0 ? (
@@ -975,7 +1193,6 @@ export default function Pagamentos() {
                 )}
               </div>
 
-              {/* Registo diário */}
               <div>
                 <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Registo diário</h3>
 
@@ -1047,7 +1264,6 @@ export default function Pagamentos() {
                 )}
               </div>
 
-              {/* Ações rápidas */}
               <div className="grid grid-cols-2 gap-2">
                 <Button
                   variant="secondary"
@@ -1055,7 +1271,7 @@ export default function Pagamentos() {
                   className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
                 >
                   <Download size={16} className="mr-2" />
-                  Exportar CSV (lista)
+                  Exportar CSV
                 </Button>
 
                 <Button

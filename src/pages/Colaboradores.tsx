@@ -3,7 +3,19 @@ import { useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
-import { Search, UserPlus, Edit, Eye, X, Phone, Mail, Calendar, Clock, FileWarning, TrendingUp } from 'lucide-react';
+import {
+  Search,
+  UserPlus,
+  Edit,
+  Eye,
+  X,
+  Phone,
+  Mail,
+  Calendar,
+  Clock,
+  FileWarning,
+  TrendingUp,
+} from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { ColaboradorModal } from '../components/colaboradores/ColaboradorModal';
 
@@ -46,6 +58,24 @@ function startOfDay(d: Date) {
   return x;
 }
 
+/**
+ * Evita bugs de timezone:
+ * - Para filtros no Postgres (data tipo date), use string YYYY-MM-DD construída em LOCAL.
+ * - Para comparar datas YYYY-MM-DD, parse como local (T00:00:00) e compare com startOfDay(local).
+ */
+function toISODateLocal(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseDateOnlyLocal(iso: string) {
+  // iso esperado: YYYY-MM-DD
+  // new Date('YYYY-MM-DD') pode ser UTC em alguns browsers; forçamos local.
+  return new Date(`${iso}T00:00:00`);
+}
+
 function formatDatePT(date?: string | null) {
   if (!date) return '-';
   const d = new Date(date);
@@ -61,15 +91,24 @@ function safeHours(n: number) {
   return Math.round((n || 0) * 10) / 10;
 }
 
+// normaliza para comparação robusta (remove acentos)
+function normKey(s: string) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 function normStatus(s: string) {
-  return String(s || '').toLowerCase().trim();
+  return normKey(s);
 }
 
 function statusLabel(s: string) {
   const v = normStatus(s);
   if (v === 'ativo') return 'Ativo';
   if (v === 'inativo') return 'Inativo';
-  if (v === 'ferias' || v === 'férias') return 'Férias';
+  if (v === 'ferias') return 'Férias';
   if (v === 'baixa') return 'Baixa';
   return s || '-';
 }
@@ -80,7 +119,6 @@ function getStatusVariant(status: string) {
     ativo: 'success',
     inativo: 'default',
     ferias: 'info',
-    'férias': 'info',
     baixa: 'warning',
   };
   return variants[s] || 'default';
@@ -129,6 +167,54 @@ function Avatar({
   );
 }
 
+function IconActionButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
+                 dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60"
+      onClick={onClick}
+      title={title}
+      type="button"
+    >
+      {children}
+    </button>
+  );
+}
+
+function DocChip({
+  tone,
+  icon,
+  label,
+}: {
+  tone: 'ok' | 'warn' | 'danger';
+  icon: React.ReactNode;
+  label: string;
+}) {
+  const base =
+    'inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-semibold leading-none';
+  const styles =
+    tone === 'danger'
+      ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-200'
+      : tone === 'warn'
+        ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200'
+        : 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800/70 dark:bg-slate-900/40 dark:text-slate-200';
+
+  return (
+    <span className={`${base} ${styles}`}>
+      {icon}
+      {label}
+    </span>
+  );
+}
+
 export function Colaboradores({
   onOpenDocumentosColaborador,
 }: {
@@ -162,6 +248,8 @@ export function Colaboradores({
     const cutoff7 = new Date(hoje.getTime() - 7 * 24 * 60 * 60 * 1000);
     const em30 = new Date(hoje.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    const cutoff30ISO = toISODateLocal(cutoff30);
+
     try {
       const [colabRes, docsRes, presRes] = await Promise.all([
         supabase.from('colaboradores').select('*').order('nome_completo'),
@@ -169,7 +257,7 @@ export function Colaboradores({
         supabase
           .from('presencas_dia')
           .select('colaborador_id, total_horas, data')
-          .gte('data', cutoff30.toISOString().split('T')[0]),
+          .gte('data', cutoff30ISO),
       ]);
 
       if (colabRes.error) throw colabRes.error;
@@ -190,6 +278,7 @@ export function Colaboradores({
         colaborador_id: p.colaborador_id,
       })) as PresencaRow[];
 
+      // Docs agg
       const docsAgg: Record<string, { vencidos: number; aVencer30: number }> = {};
       for (const d of docs) {
         const id = d.colaborador_id;
@@ -198,34 +287,36 @@ export function Colaboradores({
         const dvRaw = d.data_validade;
         if (!dvRaw) continue;
 
-        const dv = new Date(dvRaw);
+        const dv = parseDateOnlyLocal(dvRaw);
         if (Number.isNaN(dv.getTime())) continue;
 
         if (!docsAgg[id]) docsAgg[id] = { vencidos: 0, aVencer30: 0 };
 
+        // Comparações em "startOfDay"
         if (dv < hoje) docsAgg[id].vencidos += 1;
         else if (dv >= hoje && dv <= em30) docsAgg[id].aVencer30 += 1;
       }
 
+      // Presenças agg
       const presAgg: Record<string, { horas7d: number; horas30d: number; ultima: string | null }> = {};
       for (const p of presencas) {
         const id = p.colaborador_id;
         if (!id) continue;
 
-        const data = new Date(p.data);
-        if (Number.isNaN(data.getTime())) continue;
+        const dataObj = parseDateOnlyLocal(p.data);
+        if (Number.isNaN(dataObj.getTime())) continue;
 
         const horas = Number(p.horas_trabalhadas || 0);
 
         if (!presAgg[id]) presAgg[id] = { horas7d: 0, horas30d: 0, ultima: null };
 
         presAgg[id].horas30d += horas;
-        if (data >= cutoff7) presAgg[id].horas7d += horas;
+        if (dataObj >= cutoff7) presAgg[id].horas7d += horas;
 
         if (!presAgg[id].ultima) presAgg[id].ultima = p.data;
         else {
-          const prev = new Date(presAgg[id].ultima!);
-          if (data > prev) presAgg[id].ultima = p.data;
+          const prev = parseDateOnlyLocal(presAgg[id].ultima!);
+          if (dataObj > prev) presAgg[id].ultima = p.data;
         }
       }
 
@@ -268,7 +359,15 @@ export function Colaboradores({
 
     let rows = colaboradores.filter((c) => {
       const nomeOk = !s || c.nome_completo.toLowerCase().includes(s);
-      const statusOk = statusFilter === 'todos' ? true : normStatus(c.status) === statusFilter;
+
+      const st = normStatus(c.status);
+      const statusOk =
+        statusFilter === 'todos'
+          ? true
+          : statusFilter === 'ferias'
+            ? st === 'ferias'
+            : st === statusFilter;
+
       const cargoOk = cargoFilter === 'todos' ? true : (c.categoria || '-') === cargoFilter;
       return nomeOk && statusOk && cargoOk;
     });
@@ -342,8 +441,8 @@ export function Colaboradores({
         </Card>
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPIs (mobile 2 colunas) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.total}</div>
@@ -445,157 +544,289 @@ export function Colaboradores({
           </div>
         </div>
 
-        {/* Table */}
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full min-w-[980px]">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800/70">
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Colaborador
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Cargo
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Contacto
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Valor/Hora
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Atividade
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Documentos
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Status
-                </th>
-                <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                  Ações
-                </th>
-              </tr>
-            </thead>
+        {/* MOBILE LIST */}
+        <div className="mt-5 md:hidden space-y-3">
+          {filtered.map((c) => {
+            const m = metricsById[c.id] || {
+              horas7d: 0,
+              horas30d: 0,
+              ultimaPresenca: null,
+              docsVencidos: 0,
+              docsAVencer30: 0,
+            };
 
-            <tbody>
-              {filtered.map((c) => {
-                const m = metricsById[c.id] || {
-                  horas7d: 0,
-                  horas30d: 0,
-                  ultimaPresenca: null,
-                  docsVencidos: 0,
-                  docsAVencer30: 0,
-                };
+            const valorHora = Number(c.valor_hora || 0);
+            const docTotal = (m.docsVencidos || 0) + (m.docsAVencer30 || 0);
 
-                const valorHora = Number(c.valor_hora || 0);
-                const custo7d = valorHora > 0 ? valorHora * (m.horas7d || 0) : 0;
-                const docTotal = (m.docsVencidos || 0) + (m.docsAVencer30 || 0);
-
-                return (
-                  <tr
-                    key={c.id}
-                    className="border-b border-slate-100 hover:bg-slate-50
-                               dark:border-slate-800/50 dark:hover:bg-slate-950/30"
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-4">
-                        <Avatar name={c.nome_completo} foto_url={c.foto_url} size="md" />
-                        <div className="min-w-0">
-                          <div className="font-semibold text-[15px] text-slate-900 dark:text-slate-100 truncate">
-                            {c.nome_completo}
-                          </div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400">
-                            Entrada: {formatDatePT(c.data_entrada_plataforma)}
-                          </div>
+            return (
+              <div
+                key={c.id}
+                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm
+                           dark:border-slate-800/70 dark:bg-slate-950/30 dark:shadow-black/30"
+              >
+                <div className="flex items-start gap-3">
+                  <Avatar name={c.nome_completo} foto_url={c.foto_url} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-semibold text-[15px] text-slate-900 dark:text-slate-100 truncate">
+                          {c.nome_completo}
+                        </div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {c.categoria || '—'} • Entrada: {formatDatePT(c.data_entrada_plataforma)}
                         </div>
                       </div>
-                    </td>
-
-                    <td className="py-3 px-4 text-sm text-slate-700 dark:text-slate-200">{c.categoria || '-'}</td>
-
-                    <td className="py-3 px-4">
-                      <div className="text-sm text-slate-700 dark:text-slate-200">
-                        <div className="flex items-center gap-2">
-                          <Phone size={14} className="text-slate-400 dark:text-slate-500" />
-                          <span>{c.telefone || '-'}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Mail size={14} className="text-slate-400 dark:text-slate-500" />
-                          <span className="truncate max-w-[260px]">{c.email || '-'}</span>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        {c.valor_hora != null ? `€${Number(c.valor_hora).toFixed(2)}/h` : '-'}
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        7d: {valorHora > 0 ? formatEUR(custo7d) : '—'}
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <div className="text-sm text-slate-900 dark:text-slate-100 font-semibold">{m.horas7d}h</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        Última: {m.ultimaPresenca ? formatDatePT(m.ultimaPresenca) : '-'}
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      {docTotal === 0 ? (
-                        <div className="text-sm text-slate-600 dark:text-slate-300">OK</div>
-                      ) : (
-                        <div className="flex flex-col gap-1">
-                          {m.docsVencidos > 0 && (
-                            <div className="flex items-center gap-2 text-sm text-red-700 dark:text-red-300">
-                              <FileWarning size={14} />
-                              <span>{m.docsVencidos} vencido(s)</span>
-                            </div>
-                          )}
-                          {m.docsAVencer30 > 0 && (
-                            <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
-                              <Calendar size={14} />
-                              <span>{m.docsAVencer30} a vencer</span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </td>
-
-                    <td className="py-3 px-4">
                       <Badge variant={getStatusVariant(c.status)}>{statusLabel(c.status)}</Badge>
-                    </td>
+                    </div>
 
-                    <td className="py-3 px-4">
-                      <div className="flex gap-2">
-                        <button
-                          className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
-                                     dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60"
-                          onClick={() => openProfile(c)}
-                          title="Ver perfil"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        <button
-                          className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
-                                     dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60"
-                          onClick={() => openModal(c.id)}
-                          title="Editar"
-                        >
-                          <Edit size={16} />
-                        </button>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800/70 dark:bg-slate-900/35">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          <Clock size={13} className="text-slate-400 dark:text-slate-500" />
+                          Atividade (7d)
+                        </div>
+                        <div className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {m.horas7d}h
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Última: {m.ultimaPresenca ? formatDatePT(m.ultimaPresenca) : '-'}
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-800/70 dark:bg-slate-900/35">
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                          <FileWarning
+                            size={13}
+                            className={docTotal ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400 dark:text-slate-500'}
+                          />
+                          Documentos
+                        </div>
+                        {docTotal === 0 ? (
+                          <div className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-slate-100">OK</div>
+                        ) : (
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {m.docsVencidos > 0 && (
+                              <DocChip tone="danger" icon={<FileWarning size={12} />} label={`${m.docsVencidos} venc.`} />
+                            )}
+                            {m.docsAVencer30 > 0 && (
+                              <DocChip tone="warn" icon={<Calendar size={12} />} label={`${m.docsAVencer30} a vencer`} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <div className="flex items-center gap-2">
+                        <Phone size={13} className="text-slate-400 dark:text-slate-500" />
+                        <span className="font-medium">{c.telefone || '-'}</span>
+                      </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Mail size={13} className="text-slate-400 dark:text-slate-500" />
+                        <span className="truncate">{c.email || '-'}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        {c.valor_hora != null ? (
+                          <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                            €{Number(c.valor_hora).toFixed(2)}/h
+                          </span>
+                        ) : (
+                          <span>—</span>
+                        )}
+                        {valorHora > 0 ? (
+                          <span className="ml-2">
+                            7d:{' '}
+                            <span className="font-semibold tabular-nums">{formatEUR(valorHora * (m.horas7d || 0))}</span>
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <IconActionButton title="Ver perfil" onClick={() => openProfile(c)}>
+                          <Eye size={16} />
+                        </IconActionButton>
+                        <IconActionButton title="Editar" onClick={() => openModal(c.id)}>
+                          <Edit size={16} />
+                        </IconActionButton>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <Button
+                        variant="secondary"
+                        className="w-full dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                        onClick={() => onOpenDocumentosColaborador?.(c.id)}
+                      >
+                        Ver documentos
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
 
           {filtered.length === 0 && (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400">Nenhum colaborador encontrado</div>
           )}
+        </div>
+
+        {/* DESKTOP/TABLET TABLE */}
+        <div className="mt-5 hidden md:block">
+          <div className="rounded-2xl border border-slate-200 overflow-hidden dark:border-slate-800/70">
+            <table className="w-full table-fixed">
+              <thead className="bg-white dark:bg-slate-950/30">
+                <tr className="border-b border-slate-200 dark:border-slate-800/70">
+                  {/* Ajuste de widths para somar ~100% */}
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[36%]">
+                    Colaborador
+                  </th>
+
+                  <th className="hidden lg:table-cell text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[12%]">
+                    Cargo
+                  </th>
+
+                  <th className="hidden xl:table-cell text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[14%]">
+                    Contacto
+                  </th>
+
+                  <th className="hidden lg:table-cell text-right py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[10%]">
+                    Valor/Hora
+                  </th>
+
+                  <th className="text-right py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[12%]">
+                    Atividade
+                  </th>
+
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[8%]">
+                    Documentos
+                  </th>
+
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[8%]">
+                    Status
+                  </th>
+
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[10%]">
+                    Ações
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filtered.map((c) => {
+                  const m = metricsById[c.id] || {
+                    horas7d: 0,
+                    horas30d: 0,
+                    ultimaPresenca: null,
+                    docsVencidos: 0,
+                    docsAVencer30: 0,
+                  };
+
+                  const valorHora = Number(c.valor_hora || 0);
+                  const custo7d = valorHora > 0 ? valorHora * (m.horas7d || 0) : 0;
+                  const docTotal = (m.docsVencidos || 0) + (m.docsAVencer30 || 0);
+
+                  return (
+                    <tr
+                      key={c.id}
+                      className="border-b border-slate-100 hover:bg-slate-50
+                                 dark:border-slate-800/50 dark:hover:bg-slate-950/30"
+                    >
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-4">
+                          <Avatar name={c.nome_completo} foto_url={c.foto_url} size="md" />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-[15px] text-slate-900 dark:text-slate-100 truncate">
+                              {c.nome_completo}
+                            </div>
+
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 truncate">
+                              <span className="mr-2">Entrada: {formatDatePT(c.data_entrada_plataforma)}</span>
+                              <span className="hidden lg:inline">• {c.categoria || '—'}</span>
+                              <span className="xl:hidden"> • {c.categoria || '—'} • {c.telefone || '-'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="hidden lg:table-cell py-2.5 px-4 text-sm text-slate-700 dark:text-slate-200 truncate">
+                        {c.categoria || '-'}
+                      </td>
+
+                      <td className="hidden xl:table-cell py-2.5 px-4">
+                        <div className="text-sm text-slate-700 dark:text-slate-200">
+                          <div className="flex items-center gap-2">
+                            <Phone size={14} className="text-slate-400 dark:text-slate-500" />
+                            <span className="truncate">{c.telefone || '-'}</span>
+                          </div>
+
+                          <div className="hidden 2xl:flex items-center gap-2 mt-1">
+                            <Mail size={14} className="text-slate-400 dark:text-slate-500" />
+                            <span className="truncate">{c.email || '-'}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="hidden lg:table-cell py-2.5 px-4 text-right">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {c.valor_hora != null ? `€${Number(c.valor_hora).toFixed(2)}/h` : '-'}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                          7d: {valorHora > 0 ? formatEUR(custo7d) : '—'}
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-4 text-right">
+                        <div className="text-sm text-slate-900 dark:text-slate-100 font-semibold tabular-nums">
+                          {m.horas7d}h
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          Última: {m.ultimaPresenca ? formatDatePT(m.ultimaPresenca) : '-'}
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        {docTotal === 0 ? (
+                          <DocChip tone="ok" icon={<FileWarning size={12} className="opacity-60" />} label="OK" />
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5">
+                            {m.docsVencidos > 0 && (
+                              <DocChip tone="danger" icon={<FileWarning size={12} />} label={`${m.docsVencidos} venc.`} />
+                            )}
+                            {m.docsAVencer30 > 0 && (
+                              <DocChip tone="warn" icon={<Calendar size={12} />} label={`${m.docsAVencer30} a vencer`} />
+                            )}
+                          </div>
+                        )}
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <Badge variant={getStatusVariant(c.status)}>{statusLabel(c.status)}</Badge>
+                      </td>
+
+                      <td className="py-2.5 px-4">
+                        <div className="flex gap-2">
+                          <IconActionButton title="Ver perfil" onClick={() => openProfile(c)}>
+                            <Eye size={16} />
+                          </IconActionButton>
+                          <IconActionButton title="Editar" onClick={() => openModal(c.id)}>
+                            <Edit size={16} />
+                          </IconActionButton>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {filtered.length === 0 && (
+              <div className="text-center py-12 text-slate-500 dark:text-slate-400">Nenhum colaborador encontrado</div>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -605,7 +836,7 @@ export function Colaboradores({
           <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setSelected(null)} aria-hidden="true" />
           <div
             className="fixed right-0 top-0 h-full w-full sm:w-[520px] bg-white z-50 border-l border-slate-200 shadow-xl
-                          dark:bg-slate-950 dark:border-slate-800/70 dark:shadow-black/45"
+                       dark:bg-slate-950 dark:border-slate-800/70 dark:shadow-black/45"
           >
             <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-3 dark:border-slate-800/70">
               <div className="flex items-start gap-3 min-w-0">
@@ -630,6 +861,7 @@ export function Colaboradores({
                            dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900/60"
                 onClick={() => setSelected(null)}
                 aria-label="Fechar"
+                type="button"
               >
                 <X size={18} />
               </button>
@@ -658,7 +890,7 @@ export function Colaboradores({
                   </div>
                   <div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">Valor/hora</div>
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
                       {selected.valor_hora != null ? `€${Number(selected.valor_hora).toFixed(2)}/h` : '-'}
                     </div>
                   </div>
@@ -686,8 +918,10 @@ export function Colaboradores({
                           <Clock size={14} className="text-slate-400 dark:text-slate-500" />
                           Horas (7d)
                         </div>
-                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{horas7d}h</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {horas7d}h
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
                           Custo: {valorHora > 0 ? formatEUR(valorHora * horas7d) : '—'}
                         </div>
                       </div>
@@ -697,7 +931,9 @@ export function Colaboradores({
                           <Clock size={14} className="text-slate-400 dark:text-slate-500" />
                           Horas (30d)
                         </div>
-                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{horas30d}h</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {horas30d}h
+                        </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">
                           Última: {m?.ultimaPresenca ? formatDatePT(m.ultimaPresenca) : '-'}
                         </div>
@@ -708,7 +944,9 @@ export function Colaboradores({
                           <FileWarning size={14} className="text-red-600 dark:text-red-400" />
                           Docs vencidos
                         </div>
-                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{docsV}</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {docsV}
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800/70 dark:bg-slate-900/40">
@@ -716,7 +954,9 @@ export function Colaboradores({
                           <Calendar size={14} className="text-amber-700 dark:text-amber-300" />
                           A vencer (30d)
                         </div>
-                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{docsA}</div>
+                        <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
+                          {docsA}
+                        </div>
                       </div>
                     </div>
                   );
@@ -750,7 +990,12 @@ export function Colaboradores({
         </>
       )}
 
-      <ColaboradorModal isOpen={modalOpen} onClose={closeModal} onSuccess={handleModalSuccess} colaboradorId={editingId} />
+      <ColaboradorModal
+        isOpen={modalOpen}
+        onClose={closeModal}
+        onSuccess={handleModalSuccess}
+        colaboradorId={editingId}
+      />
     </div>
   );
 }

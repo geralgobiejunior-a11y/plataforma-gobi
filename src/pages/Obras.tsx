@@ -13,6 +13,8 @@ import {
   AlertTriangle,
   Edit,
   ArrowRight,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { ObraModal } from '../components/obras/ObraModal';
@@ -33,8 +35,6 @@ interface Obra {
   latitude: number | null;
   longitude: number | null;
   created_at?: string | null;
-
-  // IMPORTANTE: já existe no ObraModal / DB
   logo_url?: string | null;
 }
 
@@ -84,11 +84,6 @@ function obraInitials(nome: string) {
   return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
 }
 
-/**
- * Logo da obra (maior, mas mantém o look “pasta”).
- * - Se tiver logo_url: mostra imagem
- * - Se não: iniciais
- */
 function ObraLogo({
   nome,
   logo_url,
@@ -98,7 +93,6 @@ function ObraLogo({
   logo_url?: string | null;
   size?: 'sm' | 'md' | 'lg';
 }) {
-  // Ajuste: maior que antes, sem ficar gigante
   const sizeClass = size === 'sm' ? 'h-11 w-11' : size === 'lg' ? 'h-16 w-16' : 'h-14 w-14';
   const textClass = size === 'lg' ? 'text-base' : 'text-sm';
 
@@ -136,6 +130,9 @@ export function Obras() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
+  // controla expansão “ver mais” no mobile (por card)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     loadObras();
   }, []);
@@ -143,10 +140,9 @@ export function Obras() {
   const loadObras = async () => {
     setLoading(true);
 
-    const { data, error } = await supabase
-      .from('obras')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('obras').select('*').order('created_at', {
+      ascending: false,
+    });
 
     if (error) console.error('Erro ao carregar obras:', error);
     if (data) setObras(data as Obra[]);
@@ -218,13 +214,15 @@ export function Obras() {
       p.tone === 'danger'
         ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/25'
         : p.tone === 'warning'
-          ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/25'
-          : p.tone === 'ok'
-            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/25'
-            : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-200 dark:border-slate-800/70';
+        ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/25'
+        : p.tone === 'ok'
+        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/25'
+        : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-200 dark:border-slate-800/70';
 
     return (
-      <span className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-medium ${cls}`}>
+      <span
+        className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-xs font-medium ${cls}`}
+      >
         <Clock size={14} />
         {p.label}
       </span>
@@ -256,6 +254,10 @@ export function Obras() {
     }
   };
 
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -266,37 +268,37 @@ export function Obras() {
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* KPIs — mobile em 2 colunas; custo ocupa linha inteira */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Obras</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.total}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Total registadas</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Total registadas</div>
         </Card>
 
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Ativas</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.ativas}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Em execução</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Em execução</div>
         </Card>
 
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Pausadas</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.pausadas}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Aguardam retomada</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Aguardam retomada</div>
         </Card>
 
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Concluídas</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.concluidas}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Finalizadas</div>
+          <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Finalizadas</div>
         </Card>
 
-        <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
+        <Card className="col-span-2 lg:col-span-1 p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Custo M.O.</div>
           <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{eur(kpis.custoTotal)}</div>
           <div
-            className={`mt-1 text-xs ${
+            className={`mt-1 text-[11px] ${
               kpis.atrasadas > 0 ? 'text-red-700 dark:text-red-300' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
@@ -305,12 +307,15 @@ export function Obras() {
         </Card>
       </div>
 
-      <Card className="p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
-        {/* Toolbar */}
-        <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+      <Card className="p-4 sm:p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
+        {/* Toolbar — mobile em 2 linhas */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <div className="relative w-full sm:w-[360px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Pesquisar por obra ou cliente…"
@@ -324,10 +329,26 @@ export function Obras() {
               />
             </div>
 
+            <div className="hidden sm:flex items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={loadObras}
+                className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+              >
+                Atualizar
+              </Button>
+              <Button onClick={() => openModal()}>
+                <Plus size={16} className="mr-2" />
+                Nova Obra
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full sm:w-[190px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
+              className="w-full sm:w-[220px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
                          focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
                          dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
             >
@@ -338,20 +359,20 @@ export function Obras() {
               <option value="cancelada">Cancelada</option>
             </select>
 
-            <Button
-              variant="secondary"
-              onClick={loadObras}
-              className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-            >
-              Atualizar
-            </Button>
-          </div>
-
-          <div className="flex items-center gap-2 justify-end">
-            <Button onClick={() => openModal()}>
-              <Plus size={16} className="mr-2" />
-              Nova Obra
-            </Button>
+            {/* Ações no mobile */}
+            <div className="flex sm:hidden items-center gap-2">
+              <Button
+                variant="secondary"
+                onClick={loadObras}
+                className="flex-1 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+              >
+                Atualizar
+              </Button>
+              <Button onClick={() => openModal()} className="flex-1">
+                <Plus size={16} className="mr-2" />
+                Nova
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -360,6 +381,7 @@ export function Obras() {
           {filtered.map((obra) => {
             const custo = Number(obra.custo_mao_obra_acumulado || 0);
             const prazo = prazoInfo(obra);
+            const isExpanded = !!expanded[obra.id];
 
             return (
               <Card
@@ -367,18 +389,21 @@ export function Obras() {
                 className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white transition-shadow hover:shadow-md
                            dark:border-slate-800/70 dark:bg-slate-900/60 dark:hover:bg-slate-900/70 dark:shadow-black/30"
               >
-                {/* “Pasta” (accent + aba superior) */}
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-white to-white pointer-events-none
-                                dark:from-amber-500/10 dark:via-slate-950/20 dark:to-slate-950/10" />
+                {/* Accent “pasta” */}
+                <div
+                  className="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-white to-white pointer-events-none
+                             dark:from-amber-500/10 dark:via-slate-950/20 dark:to-slate-950/10"
+                />
                 <div className="absolute inset-y-0 left-0 w-1.5 bg-amber-500/90 dark:bg-amber-400/80" />
-                <div className="absolute -top-3 left-6 h-7 w-28 rounded-t-2xl bg-amber-100 border border-amber-200 border-b-0 shadow-sm
-                                dark:bg-amber-500/15 dark:border-amber-500/25 dark:shadow-black/30" />
+                <div
+                  className="absolute -top-3 left-6 h-7 w-28 rounded-t-2xl bg-amber-100 border border-amber-200 border-b-0 shadow-sm
+                             dark:bg-amber-500/15 dark:border-amber-500/25 dark:shadow-black/30"
+                />
 
                 <div className="relative p-4">
                   {/* Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex items-start gap-3">
-                      {/* Logo da obra (agora maior) */}
                       <ObraLogo nome={obra.nome} logo_url={obra.logo_url} size="md" />
 
                       <div className="min-w-0 pt-0.5">
@@ -393,6 +418,7 @@ export function Obras() {
                             </span>
                           )}
                         </div>
+
                         {obra.cliente && (
                           <p className="text-sm text-slate-500 dark:text-slate-300 mt-0.5 truncate">{obra.cliente}</p>
                         )}
@@ -402,7 +428,7 @@ export function Obras() {
                     <Badge variant={statusVariant(obra.status)}>{obra.status}</Badge>
                   </div>
 
-                  {/* Pills */}
+                  {/* Pills — no mobile mostra só o essencial (prazo + localização curta) */}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {prazoPill(obra)}
                     {obra.localizacao && (
@@ -416,8 +442,40 @@ export function Obras() {
                     )}
                   </div>
 
-                  {/* Datas */}
-                  <div className="mt-4 grid grid-cols-2 gap-3">
+                  {/* Resumo custo (sempre visível) */}
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-950/35">
+                    <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                      <Euro size={14} className="text-slate-400 dark:text-slate-500" />
+                      Custo mão de obra
+                    </div>
+                    <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{eur(custo)}</div>
+                  </div>
+
+                  {/* “Ver mais” — só aparece no mobile */}
+                  <div className="mt-3 md:hidden">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(obra.id)}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/70 px-3 py-2 text-sm
+                                 text-slate-700 hover:bg-slate-50 transition
+                                 dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                    >
+                      {isExpanded ? (
+                        <>
+                          <ChevronUp size={16} />
+                          Ver menos
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={16} />
+                          Ver mais
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Datas — sempre visível no desktop; colapsável no mobile */}
+                  <div className={['mt-4 grid grid-cols-2 gap-3', 'md:grid', isExpanded ? 'grid' : 'hidden md:grid'].join(' ')}>
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-950/35">
                       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                         <Calendar size={14} className="text-slate-400 dark:text-slate-500" />
@@ -439,17 +497,16 @@ export function Obras() {
                     </div>
                   </div>
 
-                  {/* Footer */}
+                  {/* Footer (ações) */}
                   <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800/70 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 hidden md:block">
                       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                        <Euro size={14} className="text-slate-400 dark:text-slate-500" />
-                        Custo mão de obra
+                        <Clock size={14} className="text-slate-400 dark:text-slate-500" />
+                        {prazo.label}
                       </div>
-                      <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{eur(custo)}</div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full md:w-auto justify-end">
                       <Button
                         variant="ghost"
                         size="sm"

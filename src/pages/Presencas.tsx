@@ -73,21 +73,22 @@ type PresencaExistente = {
   total_horas: number;
 };
 
+const BRAND = { blue: '#0B4F8A' };
 const HORAS_DIA = 8;
 
 const cardBase =
   'border border-slate-200 bg-white shadow-sm ' +
   'dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30';
 
-// --- Período: 24 -> 23 (mês de fecho dia 23) ---
-
-function safeDateISO(y: number, m1: number, d: number) {
-  const dt = new Date(y, m1 - 1, d);
-  return dt.toISOString().split('T')[0];
+// -------------------- Período 24 -> 23 (mês de fecho dia 23) --------------------
+// IMPORTANTE: evitar Date().toISOString() para gerar YYYY-MM-DD do período (pode deslocar 1 dia por timezone/DST).
+const pad2 = (n: number) => String(n).padStart(2, '0');
+function isoFromYMD(y: number, m1: number, d: number) {
+  return `${y}-${pad2(m1)}-${pad2(d)}`;
 }
 
 function getPeriodo24a23(ano: number, mes1: number) {
-  const end = safeDateISO(ano, mes1, 23);
+  const end = isoFromYMD(ano, mes1, 23);
 
   let prevMes1 = mes1 - 1;
   let prevAno = ano;
@@ -96,7 +97,7 @@ function getPeriodo24a23(ano: number, mes1: number) {
     prevAno = ano - 1;
   }
 
-  const start = safeDateISO(prevAno, prevMes1, 24);
+  const start = isoFromYMD(prevAno, prevMes1, 24);
 
   return {
     startISO: start,
@@ -118,7 +119,6 @@ function calcularMetaPeriodo(startISO: string, endISO: string): number {
 
   while (cur <= dataFim) {
     const dow = cur.getDay();
-    // seg-sex
     if (dow !== 0 && dow !== 6) diasUteis++;
     cur.setDate(cur.getDate() + 1);
   }
@@ -127,7 +127,6 @@ function calcularMetaPeriodo(startISO: string, endISO: string): number {
 }
 
 function isBetweenISO(dateISO: string, startISO: string, endISO: string) {
-  // ISO YYYY-MM-DD compara lexicograficamente
   return dateISO >= startISO && dateISO <= endISO;
 }
 
@@ -153,7 +152,8 @@ function getInitials(name: string) {
 }
 
 function formatWeekdayLabel(dateISO: string) {
-  const d = new Date(`${dateISO}T00:00:00`);
+  // usar meio-dia para reduzir efeitos de DST na formatação
+  const d = new Date(`${dateISO}T12:00:00`);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 }
@@ -173,7 +173,7 @@ function toCSV(rows: string[][]) {
 }
 
 function isSundayISO(dateISO: string) {
-  const d = new Date(`${dateISO}T00:00:00`);
+  const d = new Date(`${dateISO}T12:00:00`);
   return !Number.isNaN(d.getTime()) && d.getDay() === 0;
 }
 
@@ -189,6 +189,12 @@ function hasFaltaRegisto(registos: any[]): boolean {
   return Array.isArray(registos) && registos.some((r) => r?.tipo === 'falta');
 }
 
+function eurPct(pct: number) {
+  const v = Math.max(0, Math.min(100, pct));
+  return `${v.toFixed(0)}%`;
+}
+
+// -------------------- Modal simples (mantido) --------------------
 function SimpleModal(props: {
   open: boolean;
   title: string;
@@ -232,12 +238,68 @@ function SimpleModal(props: {
   );
 }
 
+// -------------------- UI helpers --------------------
+function SegmentedTabs(props: {
+  value: 'resumo' | 'registrar' | 'historico';
+  onChange: (v: 'resumo' | 'registrar' | 'historico') => void;
+}) {
+  const items = [
+    { key: 'resumo' as const, label: 'Resumo', icon: <TrendingUp size={16} /> },
+    { key: 'registrar' as const, label: 'Registrar', icon: <Plus size={16} /> },
+    { key: 'historico' as const, label: 'Histórico', icon: <Calendar size={16} /> },
+  ];
+
+  return (
+    <div className="w-full sm:w-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/40 p-1 flex gap-1">
+      {items.map((it) => {
+        const active = props.value === it.key;
+        return (
+          <button
+            key={it.key}
+            type="button"
+            onClick={() => props.onChange(it.key)}
+            className={[
+              'flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold transition',
+              active
+                ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-900/40',
+            ].join(' ')}
+          >
+            {it.icon}
+            <span>{it.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function KpiCard(props: { icon: React.ReactNode; label: string; value: React.ReactNode; hint?: string; tone?: 'default' | 'warn' }) {
+  const bg = props.tone === 'warn' ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-blue-50 dark:bg-blue-500/10';
+  const ring = props.tone === 'warn' ? 'border-amber-200 dark:border-amber-500/25' : 'border-slate-200 dark:border-slate-800/70';
+
+  return (
+    <Card className={`${cardBase}`}>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <div className={`h-11 w-11 rounded-2xl border ${ring} ${bg} flex items-center justify-center`}>{props.icon}</div>
+          <div className="min-w-0">
+            <div className="text-xs text-slate-600 dark:text-slate-400">{props.label}</div>
+            <div className="text-xl font-bold text-slate-900 dark:text-slate-100 truncate">{props.value}</div>
+            {props.hint && <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{props.hint}</div>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function Presencas() {
   const now = new Date();
   const mesNow0 = now.getMonth();
   const anoNow = now.getFullYear();
 
-  const [periodo, setPeriodo] = useState<string>(`${anoNow}-${String(mesNow0 + 1).padStart(2, '0')}`);
+  const [periodo, setPeriodo] = useState<string>(`${anoNow}-${pad2(mesNow0 + 1)}`);
   const [periodoObra, setPeriodoObra] = useState<string>('');
   const [viewMode, setViewMode] = useState<'resumo' | 'registrar' | 'historico'>('resumo');
 
@@ -253,14 +315,15 @@ export function Presencas() {
 
   // Registrar
   const [selectedObra, setSelectedObra] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const [selectedDate, setSelectedDate] = useState<string>(todayISO);
   const [selectedColaboradores, setSelectedColaboradores] = useState<Set<string>>(new Set());
   const [tipoRegistro, setTipoRegistro] = useState<'presenca' | 'falta'>('presenca');
   const [horaEntrada, setHoraEntrada] = useState('08:00');
   const [horaSaida, setHoraSaida] = useState('17:00');
-  const [justificacaoFalta, setJustificacaoFalta] = useState(''); // opcional
+  const [justificacaoFalta, setJustificacaoFalta] = useState('');
 
-  // Registrar: amarração com existentes (obra+data)
+  // Registrar: existentes (obra+data)
   const [existentesByColab, setExistentesByColab] = useState<Record<string, PresencaExistente>>({});
   const [loadingExistentes, setLoadingExistentes] = useState(false);
 
@@ -270,7 +333,7 @@ export function Presencas() {
   const [editStatus, setEditStatus] = useState<RegistrarStatus>('presenca');
   const [editEntrada, setEditEntrada] = useState('08:00');
   const [editSaida, setEditSaida] = useState('17:00');
-  const [editJustificacao, setEditJustificacao] = useState(''); // opcional
+  const [editJustificacao, setEditJustificacao] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
   // Histórico
@@ -288,11 +351,10 @@ export function Presencas() {
     const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
     const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo24a23(ano, mes1);
-
     const metaDefault = calcularMetaPeriodo(startISO, endISO);
 
-    const startLabel = `24/${String(startMes1).padStart(2, '0')}/${startAno}`;
-    const endLabel = `23/${String(endMes1).padStart(2, '0')}/${endAno}`;
+    const startLabel = `24/${pad2(startMes1)}/${startAno}`;
+    const endLabel = `23/${pad2(endMes1)}/${endAno}`;
     const label = `${startLabel} → ${endLabel}`;
 
     return {
@@ -306,11 +368,9 @@ export function Presencas() {
     };
   }, [periodo, anoNow, mesNow0]);
 
-  // Garante que a data selecionada do "Registrar" fique dentro do período 24→23
+  // garantir data do Registrar dentro do período
   useEffect(() => {
     if (viewMode !== 'registrar') return;
-
-    const todayISO = new Date().toISOString().split('T')[0];
     const clamped = clampISO(selectedDate || todayISO, rangeInicio, rangeFim);
     if (clamped !== selectedDate) setSelectedDate(clamped);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -542,7 +602,6 @@ export function Presencas() {
       .sort((a: Colaborador, b: Colaborador) => a.nome_completo.localeCompare(b.nome_completo));
 
     setColaboradores(colabs);
-
     await loadExistentesRegistrar(selectedObra, selectedDate, colabs);
   };
 
@@ -633,7 +692,6 @@ export function Presencas() {
         const [a, m] = filtroMes.split('-');
         const ano = safeNumber(a, anoNow);
         const mes1 = safeNumber(m, mesNow0 + 1);
-
         const { startISO, endISO } = getPeriodo24a23(ano, mes1);
         query = query.gte('data', startISO).lte('data', endISO);
       }
@@ -663,9 +721,7 @@ export function Presencas() {
           data: p.data,
           colaborador_id: p.colaborador_id,
           colaborador_nome: p.colaborador?.nome_completo || 'Desconhecido',
-          entrada: entradaTs
-            ? new Date(entradaTs).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
-            : null,
+          entrada: entradaTs ? new Date(entradaTs).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : null,
           saida: saidaTs ? new Date(saidaTs).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }) : null,
           total_horas: safeNumber(p.total_horas, 0),
           faltou,
@@ -674,10 +730,7 @@ export function Presencas() {
       });
 
       let registrosFinal = registros;
-
-      if (historicoColaboradorId) {
-        registrosFinal = registrosFinal.filter((r) => r.colaborador_id === historicoColaboradorId);
-      }
+      if (historicoColaboradorId) registrosFinal = registrosFinal.filter((r) => r.colaborador_id === historicoColaboradorId);
 
       setHistorico(registrosFinal);
     } catch (e: any) {
@@ -689,7 +742,7 @@ export function Presencas() {
     }
   };
 
-  // Helpers de gravação (1 colaborador)
+  // Gravação (1 colaborador)
   const registrarFaltaOne = async (colaboradorId: string, justificacao: string) => {
     const { data: presencaDia, error: upsertErr } = await supabase
       .from('presencas_dia')
@@ -729,15 +782,10 @@ export function Presencas() {
     const entrada = new Date(`${selectedDate}T${entradaHHMM}:00`);
     const saida = new Date(`${selectedDate}T${saidaHHMM}:00`);
 
-    if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) {
-      throw new Error('Horários inválidos');
-    }
-    if (saida.getTime() <= entrada.getTime()) {
-      throw new Error('A hora de saída deve ser maior do que a entrada');
-    }
+    if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) throw new Error('Horários inválidos');
+    if (saida.getTime() <= entrada.getTime()) throw new Error('A hora de saída deve ser maior do que a entrada');
 
-    const diffMs = saida.getTime() - entrada.getTime();
-    const diffHoras = diffMs / (1000 * 60 * 60);
+    const diffHoras = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
 
     const { data: presencaDia, error: upsertErr } = await supabase
       .from('presencas_dia')
@@ -803,34 +851,19 @@ export function Presencas() {
     const saida = new Date(`${selectedDate}T${editSaida}:00`);
     if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) return null;
     if (saida.getTime() <= entrada.getTime()) return null;
-    const diffHoras = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
-    return diffHoras;
+    return (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
   }, [editStatus, editEntrada, editSaida, selectedDate]);
 
   const handleSaveEdit = async () => {
     if (!editColab) return;
-    if (!selectedObra) {
-      toast.error('Selecione uma obra');
-      return;
-    }
-
-    if (selectedDateOutOfPeriodo) {
-      toast.error(`Data fora do período selecionado (${periodoLabel})`);
-      return;
-    }
-
-    if (selectedDateIsSunday) {
-      toast.error('Não é permitido registrar/editar no domingo');
-      return;
-    }
+    if (!selectedObra) return toast.error('Selecione uma obra');
+    if (selectedDateOutOfPeriodo) return toast.error(`Data fora do período selecionado (${periodoLabel})`);
+    if (selectedDateIsSunday) return toast.error('Não é permitido registrar/editar no domingo');
 
     setEditSaving(true);
     try {
-      if (editStatus === 'falta') {
-        await registrarFaltaOne(editColab.id, editJustificacao);
-      } else {
-        await registrarPresencaOne(editColab.id, editEntrada, editSaida);
-      }
+      if (editStatus === 'falta') await registrarFaltaOne(editColab.id, editJustificacao);
+      else await registrarPresencaOne(editColab.id, editEntrada, editSaida);
 
       toast.success('Registo atualizado');
 
@@ -852,15 +885,8 @@ export function Presencas() {
     if (!editColab) return;
 
     const existente = existentesByColab[editColab.id];
-    if (!existente) {
-      toast.error('Não existe registo neste dia para remover');
-      return;
-    }
-
-    if (selectedDateOutOfPeriodo) {
-      toast.error(`Data fora do período selecionado (${periodoLabel})`);
-      return;
-    }
+    if (!existente) return toast.error('Não existe registo neste dia para remover');
+    if (selectedDateOutOfPeriodo) return toast.error(`Data fora do período selecionado (${periodoLabel})`);
 
     setEditSaving(true);
     try {
@@ -883,32 +909,15 @@ export function Presencas() {
   };
 
   const handleRegistrarPresenca = async () => {
-    if (!selectedObra || selectedColaboradores.size === 0) {
-      toast.error('Selecione uma obra e pelo menos um colaborador');
-      return;
-    }
-
-    if (selectedDateOutOfPeriodo) {
-      toast.error(`Data fora do período selecionado (${periodoLabel})`);
-      return;
-    }
-
-    if (selectedDateIsSunday) {
-      toast.error('Não é permitido registrar no domingo');
-      return;
-    }
+    if (!selectedObra || selectedColaboradores.size === 0) return toast.error('Selecione uma obra e pelo menos um colaborador');
+    if (selectedDateOutOfPeriodo) return toast.error(`Data fora do período selecionado (${periodoLabel})`);
+    if (selectedDateIsSunday) return toast.error('Não é permitido registrar no domingo');
 
     if (tipoRegistro === 'presenca') {
       const entrada = new Date(`${selectedDate}T${horaEntrada}:00`);
       const saida = new Date(`${selectedDate}T${horaSaida}:00`);
-      if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) {
-        toast.error('Horários inválidos');
-        return;
-      }
-      if (saida.getTime() <= entrada.getTime()) {
-        toast.error('A hora de saída deve ser maior do que a entrada');
-        return;
-      }
+      if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) return toast.error('Horários inválidos');
+      if (saida.getTime() <= entrada.getTime()) return toast.error('A hora de saída deve ser maior do que a entrada');
     }
 
     try {
@@ -967,11 +976,8 @@ export function Presencas() {
 
   const filteredPresencas = useMemo(() => {
     let list = presencasMes;
-
     if (resumoColaboradorId) list = list.filter((p) => p.colaborador_id === resumoColaboradorId);
-
     if (!searchTerm) return list;
-
     const term = searchTerm.toLowerCase();
     return list.filter((p) => p.colaborador.nome_completo.toLowerCase().includes(term));
   }, [presencasMes, searchTerm, resumoColaboradorId]);
@@ -979,7 +985,8 @@ export function Presencas() {
   const totaisResumo = useMemo(() => {
     const totalHoras = presencasMes.reduce((acc, p) => acc + safeNumber(p.horas_trabalhadas, 0), 0);
     const totalFaltas = presencasMes.reduce((acc, p) => acc + safeNumber(p.faltas, 0), 0);
-    return { totalHoras, totalFaltas };
+    const totalDias = presencasMes.reduce((acc, p) => acc + safeNumber(p.dias_trabalhados, 0), 0);
+    return { totalHoras, totalFaltas, totalDias };
   }, [presencasMes]);
 
   const historicoColaboradoresOptions = useMemo(() => {
@@ -995,15 +1002,12 @@ export function Presencas() {
   }, [historico]);
 
   const exportHistoricoCSV = () => {
-    if (!historico.length) {
-      toast.error('Sem dados para exportar');
-      return;
-    }
+    if (!historico.length) return toast.error('Sem dados para exportar');
 
     const rows: string[][] = [
       ['Data', 'Colaborador', 'Entrada', 'Saída', 'Total (h)', 'Status', 'Justificação'],
       ...historico.map((r) => [
-        new Date(r.data).toLocaleDateString('pt-PT'),
+        new Date(`${r.data}T12:00:00`).toLocaleDateString('pt-PT'),
         r.colaborador_nome,
         r.entrada || '',
         r.saida || '',
@@ -1026,47 +1030,33 @@ export function Presencas() {
     URL.revokeObjectURL(url);
   };
 
+  // Pesquisa local no Registrar (lista de colaboradores) — melhora UX no mobile
+  const [registrarSearch, setRegistrarSearch] = useState('');
+  const colaboradoresFilteredRegistrar = useMemo(() => {
+    if (!registrarSearch) return colaboradores;
+    const q = registrarSearch.toLowerCase().trim();
+    return colaboradores.filter((c) => c.nome_completo.toLowerCase().includes(q) || (c.categoria || '').toLowerCase().includes(q));
+  }, [colaboradores, registrarSearch]);
+
+  const selectedCount = selectedColaboradores.size;
+  const selectedHasExisting = useMemo(() => Array.from(selectedColaboradores).some((id) => !!existentesByColab[id]), [selectedColaboradores, existentesByColab]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <Card className={cardBase}>
-        <CardContent className="p-6">
+        <CardContent className="p-5 sm:p-6">
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
+            <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+              <div className="min-w-0">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Presenças & Faltas</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
                   Apuramento por período <span className="font-semibold">24 → 23</span> (fecho dia 23).{' '}
                   <span className="font-semibold">{periodoLabel}</span>
                 </p>
               </div>
 
-              <div className="flex gap-2">
-                <Button
-                  variant={viewMode === 'resumo' ? 'primary' : 'secondary'}
-                  onClick={() => setViewMode('resumo')}
-                  className="flex-1 sm:flex-none"
-                >
-                  <TrendingUp size={16} className="mr-2" />
-                  Resumo
-                </Button>
-                <Button
-                  variant={viewMode === 'registrar' ? 'primary' : 'secondary'}
-                  onClick={() => setViewMode('registrar')}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Plus size={16} className="mr-2" />
-                  Registrar
-                </Button>
-                <Button
-                  variant={viewMode === 'historico' ? 'primary' : 'secondary'}
-                  onClick={() => setViewMode('historico')}
-                  className="flex-1 sm:flex-none"
-                >
-                  <Calendar size={16} className="mr-2" />
-                  Histórico
-                </Button>
-              </div>
+              <SegmentedTabs value={viewMode} onChange={setViewMode} />
             </div>
 
             {/* Controles globais do Resumo */}
@@ -1088,10 +1078,7 @@ export function Presencas() {
                   <Select
                     value={periodoObra}
                     onChange={(e) => setPeriodoObra(e.target.value)}
-                    options={[
-                      { value: '', label: 'Todas as obras' },
-                      ...obras.map((o) => ({ value: o.id, label: o.nome })),
-                    ]}
+                    options={[{ value: '', label: 'Todas as obras' }, ...obras.map((o) => ({ value: o.id, label: o.nome }))]}
                     className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                   />
                 </div>
@@ -1102,6 +1089,7 @@ export function Presencas() {
                     onClick={refreshResumo}
                     className="w-full dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
                   >
+                    <RefreshCcw size={16} className="mr-2" />
                     Atualizar
                   </Button>
                 </div>
@@ -1111,72 +1099,15 @@ export function Presencas() {
         </CardContent>
       </Card>
 
-      {/* Resumo Mensal */}
+      {/* -------------------- RESUMO -------------------- */}
       {viewMode === 'resumo' && (
         <>
-          {/* KPIs */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className={cardBase}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Meta padrão do período</div>
-                    <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{metaMesDefault}h</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">8h/dia (seg–sex) no período 24 → 23</div>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
-                    <Target size={24} className="text-blue-600 dark:text-blue-300" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={cardBase}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Colaboradores</div>
-                    <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{presencasMes.length}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Com registos no período</div>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center">
-                    <Users size={24} className="text-emerald-600 dark:text-emerald-300" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={cardBase}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Total de horas</div>
-                    <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                      {totaisResumo.totalHoras.toFixed(1)}h
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">No período</div>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center">
-                    <Clock size={24} className="text-amber-600 dark:text-amber-200" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className={cardBase}>
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Total de faltas</div>
-                    <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{totaisResumo.totalFaltas}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">No período</div>
-                  </div>
-                  <div className="h-12 w-12 rounded-xl bg-red-50 dark:bg-red-500/10 flex items-center justify-center">
-                    <UserX size={24} className="text-red-600 dark:text-red-300" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* KPIs — mobile 2x2 */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <KpiCard icon={<Target size={20} className="text-blue-700 dark:text-blue-300" />} label="Meta padrão" value={`${metaMesDefault}h`} hint="8h/dia (seg–sex)" />
+            <KpiCard icon={<Users size={20} className="text-emerald-700 dark:text-emerald-300" />} label="Colaboradores" value={presencasMes.length} hint="Com registos" />
+            <KpiCard icon={<Clock size={20} className="text-amber-700 dark:text-amber-200" />} label="Total de horas" value={`${totaisResumo.totalHoras.toFixed(1)}h`} hint={`${totaisResumo.totalDias} dias`} />
+            <KpiCard icon={<UserX size={20} className="text-red-700 dark:text-red-300" />} label="Faltas" value={totaisResumo.totalFaltas} tone={totaisResumo.totalFaltas > 0 ? 'warn' : 'default'} />
           </div>
 
           {/* Pesquisa + Select colaborador */}
@@ -1190,7 +1121,7 @@ export function Presencas() {
                     placeholder="Pesquisar colaborador..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-xl bg-white text-slate-900 placeholder:text-slate-400
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900 placeholder:text-slate-400
                                focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
                                dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
                                dark:focus:ring-[#66A7E6]/25"
@@ -1238,7 +1169,7 @@ export function Presencas() {
             <CardContent>
               {loadingResumo ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A] dark:border-[#66A7E6]" />
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto" style={{ borderColor: BRAND.blue }} />
                 </div>
               ) : filteredPresencas.length === 0 ? (
                 <div className="text-center py-12">
@@ -1256,7 +1187,7 @@ export function Presencas() {
                     return (
                       <div
                         key={presenca.colaborador_id}
-                        className="p-4 border border-slate-200 rounded-xl bg-white hover:shadow-md transition
+                        className="p-4 border border-slate-200 rounded-2xl bg-white hover:shadow-md transition
                                    dark:border-slate-800/70 dark:bg-slate-950/35 dark:hover:bg-slate-950/45"
                       >
                         <div className="flex items-start gap-4">
@@ -1264,10 +1195,10 @@ export function Presencas() {
                             <img
                               src={presenca.colaborador.foto_url}
                               alt={presenca.colaborador.nome_completo}
-                              className="h-14 w-14 rounded-xl object-cover border border-slate-200 dark:border-slate-800"
+                              className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl object-cover border border-slate-200 dark:border-slate-800"
                             />
                           ) : (
-                            <div className="h-14 w-14 rounded-xl bg-[#0B4F8A] flex items-center justify-center text-white font-semibold">
+                            <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl flex items-center justify-center text-white font-semibold" style={{ background: BRAND.blue }}>
                               {getInitials(presenca.colaborador.nome_completo)}
                             </div>
                           )}
@@ -1275,56 +1206,65 @@ export function Presencas() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
-                                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                                  {presenca.colaborador.nome_completo}
-                                </div>
+                                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{presenca.colaborador.nome_completo}</div>
                                 {presenca.colaborador.categoria && (
-                                  <div className="text-sm text-slate-500 dark:text-slate-400 truncate">
-                                    {presenca.colaborador.categoria}
-                                  </div>
+                                  <div className="text-sm text-slate-500 dark:text-slate-400 truncate">{presenca.colaborador.categoria}</div>
                                 )}
                               </div>
 
-                              <Badge variant={atingiuMeta ? 'success' : proximo ? 'warning' : 'default'}>
-                                {pct.toFixed(0)}% da meta
-                              </Badge>
+                              <Badge variant={atingiuMeta ? 'success' : proximo ? 'warning' : 'default'}>{eurPct(pct)} da meta</Badge>
                             </div>
 
-                            <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-3">
-                              <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Horas</div>
-                                <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1">
-                                  <Clock size={16} className="text-emerald-600 dark:text-emerald-300" />
-                                  {presenca.horas_trabalhadas.toFixed(1)}h
+                            {/* Stats: mobile compacto */}
+                            <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-3">
+                              <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">Horas</div>
+                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{presenca.horas_trabalhadas.toFixed(1)}h</div>
+                              </div>
+
+                              <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">Dias</div>
+                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{presenca.dias_trabalhados}</div>
+                              </div>
+
+                              <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">Faltas</div>
+                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{presenca.faltas}</div>
+                              </div>
+
+                              <div className="hidden sm:block rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">Último</div>
+                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  {presenca.ultimo_registro ? new Date(`${presenca.ultimo_registro}T12:00:00`).toLocaleDateString('pt-PT') : '—'}
                                 </div>
                               </div>
 
-                              <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Dias</div>
-                                <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1">
-                                  <CheckCircle size={16} className="text-blue-600 dark:text-blue-300" />
-                                  {presenca.dias_trabalhados}
+                              <div className="hidden sm:block rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400">Meta</div>
+                                <div className="flex items-center gap-2">
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    value={String(metasByColab[presenca.colaborador_id] ?? meta)}
+                                    onChange={(e) => {
+                                      const v = safeNumber(e.target.value, meta);
+                                      setMetasByColab((prev) => ({ ...prev, [presenca.colaborador_id]: v }));
+                                    }}
+                                    onBlur={(e) => {
+                                      const v = safeNumber(e.target.value, metaMesDefault);
+                                      if (v >= 0) saveMeta(presenca.colaborador_id, v);
+                                    }}
+                                    className="h-9 w-[110px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                                  />
+                                  <span className="text-xs text-slate-500 dark:text-slate-400">h</span>
                                 </div>
                               </div>
+                            </div>
 
-                              <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Faltas</div>
-                                <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-1">
-                                  <XCircle size={16} className="text-red-600 dark:text-red-300" />
-                                  {presenca.faltas}
-                                </div>
-                              </div>
-
-                              <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Último registo</div>
-                                <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                                  {presenca.ultimo_registro
-                                    ? new Date(`${presenca.ultimo_registro}T00:00:00`).toLocaleDateString('pt-PT')
-                                    : '-'}
-                                </div>
-                              </div>
-
-                              <div>
+                            {/* Meta input para mobile (fica separado e limpo) */}
+                            <div className="sm:hidden mt-3 rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                              <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-slate-500 dark:text-slate-400">Meta (período)</div>
                                 <div className="flex items-center gap-2">
                                   <Input
@@ -1340,7 +1280,7 @@ export function Presencas() {
                                       const v = safeNumber(e.target.value, metaMesDefault);
                                       if (v >= 0) saveMeta(presenca.colaborador_id, v);
                                     }}
-                                    className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                                    className="h-10 w-[120px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                                   />
                                   <span className="text-xs text-slate-500 dark:text-slate-400">h</span>
                                 </div>
@@ -1351,7 +1291,7 @@ export function Presencas() {
                               <div className="h-2 bg-slate-100 dark:bg-slate-800/70 rounded-full overflow-hidden">
                                 <div
                                   className={`h-full transition-all ${atingiuMeta ? 'bg-emerald-500' : proximo ? 'bg-amber-500' : 'bg-blue-500'}`}
-                                  style={{ width: `${Math.min(pct, 100)}%` }}
+                                  style={{ width: `${Math.max(0, Math.min(pct, 100))}%` }}
                                 />
                               </div>
                               <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -1371,24 +1311,30 @@ export function Presencas() {
         </>
       )}
 
-      {/* Registrar */}
+      {/* -------------------- REGISTRAR -------------------- */}
       {viewMode === 'registrar' && (
         <Card className={cardBase}>
           <CardHeader>
-            <div className="font-semibold text-slate-900 dark:text-slate-100">Registrar Presença ou Falta</div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="font-semibold text-slate-900 dark:text-slate-100">Registrar Presença ou Falta</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Período ativo: <span className="font-semibold">{periodoLabel}</span>
+              </div>
+            </div>
           </CardHeader>
 
           <CardContent className="space-y-6">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/35">
-              <div className="text-sm text-slate-700 dark:text-slate-200">
-                Período ativo: <span className="font-semibold">{periodoLabel}</span>
+            {(selectedDateOutOfPeriodo || selectedDateIsSunday) && (
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 p-4">
+                <div className="text-sm text-amber-900 dark:text-amber-200 font-semibold">Atenção</div>
+                {selectedDateOutOfPeriodo && (
+                  <div className="mt-1 text-sm text-amber-900 dark:text-amber-200">
+                    Data fora do período. Ajuste para uma data entre <strong>{rangeInicio}</strong> e <strong>{rangeFim}</strong>.
+                  </div>
+                )}
+                {selectedDateIsSunday && <div className="mt-1 text-sm text-amber-900 dark:text-amber-200">Domingo: o sistema bloqueia registos.</div>}
               </div>
-              {selectedDateOutOfPeriodo && (
-                <div className="mt-2 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-lg p-2">
-                  A data selecionada está fora do período. Ajuste para uma data entre <strong>{rangeInicio}</strong> e <strong>{rangeFim}</strong>.
-                </div>
-              )}
-            </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -1396,10 +1342,7 @@ export function Presencas() {
                 <Select
                   value={selectedObra}
                   onChange={(e) => setSelectedObra(e.target.value)}
-                  options={[
-                    { value: '', label: 'Selecione uma obra' },
-                    ...obras.map((o) => ({ value: o.id, label: o.nome })),
-                  ]}
+                  options={[{ value: '', label: 'Selecione uma obra' }, ...obras.map((o) => ({ value: o.id, label: o.nome }))]}
                   className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                 />
               </div>
@@ -1415,105 +1358,98 @@ export function Presencas() {
                   max={rangeFim}
                 />
                 <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatWeekdayLabel(selectedDate)}</div>
+              </div>
+            </div>
 
-                {selectedDateIsSunday && (
-                  <div className="mt-2 text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/25 rounded-lg p-2">
-                    Domingo: não é permitido registrar presenças/faltas.
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-4">
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Tipo de registo</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant={tipoRegistro === 'presenca' ? 'primary' : 'secondary'} onClick={() => setTipoRegistro('presenca')} className="w-full">
+                    <LogIn size={16} className="mr-2" />
+                    Presença
+                  </Button>
+                  <Button variant={tipoRegistro === 'falta' ? 'primary' : 'secondary'} onClick={() => setTipoRegistro('falta')} className="w-full">
+                    <UserX size={16} className="mr-2" />
+                    Falta
+                  </Button>
+                </div>
+
+                {selectedObra && colaboradores.length > 0 && (
+                  <div className="mt-3">
+                    <Button
+                      variant="secondary"
+                      onClick={() => loadExistentesRegistrar(selectedObra, selectedDate, colaboradores)}
+                      className="w-full dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                    >
+                      <RefreshCcw size={16} className="mr-2" />
+                      Atualizar estado
+                      {loadingExistentes ? <span className="ml-2 text-xs opacity-75">(a carregar)</span> : null}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white dark:bg-slate-950/20 p-4">
+                {tipoRegistro === 'presenca' ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                        <LogIn size={14} className="inline mr-1" />
+                        Entrada
+                      </label>
+                      <Input
+                        type="time"
+                        value={horaEntrada}
+                        onChange={(e) => setHoraEntrada(e.target.value)}
+                        className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
+                        <LogOut size={14} className="inline mr-1" />
+                        Saída
+                      </label>
+                      <Input
+                        type="time"
+                        value={horaSaida}
+                        onChange={(e) => setHoraSaida(e.target.value)}
+                        className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div className="col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                      Dica: se você usar sempre o mesmo horário, basta selecionar colaboradores e registrar.
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Justificação (opcional)</label>
+                    <Input
+                      value={justificacaoFalta}
+                      onChange={(e) => setJustificacaoFalta(e.target.value)}
+                      placeholder="Ex: Doença, assunto pessoal..."
+                      className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                    <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">A justificação fica guardada como observação do registo de falta.</div>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Tipo de registo</label>
-                <div className="flex gap-3">
-                  <Button
-                    variant={tipoRegistro === 'presenca' ? 'primary' : 'secondary'}
-                    onClick={() => setTipoRegistro('presenca')}
-                    className="flex-1"
-                  >
-                    <LogIn size={16} className="mr-2" />
-                    Presença
-                  </Button>
-
-                  <Button
-                    variant={tipoRegistro === 'falta' ? 'primary' : 'secondary'}
-                    onClick={() => setTipoRegistro('falta')}
-                    className="flex-1"
-                  >
-                    <UserX size={16} className="mr-2" />
-                    Falta
-                  </Button>
-                </div>
-              </div>
-
-              {selectedObra && colaboradores.length > 0 && (
-                <div className="flex items-end">
-                  <Button
-                    variant="secondary"
-                    onClick={() => loadExistentesRegistrar(selectedObra, selectedDate, colaboradores)}
-                    className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                  >
-                    <RefreshCcw size={16} className="mr-2" />
-                    Atualizar estado
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {tipoRegistro === 'presenca' && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
-                    <LogIn size={14} className="inline mr-1" />
-                    Entrada
-                  </label>
-                  <Input
-                    type="time"
-                    value={horaEntrada}
-                    onChange={(e) => setHoraEntrada(e.target.value)}
-                    className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
-                    <LogOut size={14} className="inline mr-1" />
-                    Saída
-                  </label>
-                  <Input
-                    type="time"
-                    value={horaSaida}
-                    onChange={(e) => setHoraSaida(e.target.value)}
-                    className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
-                  />
-                </div>
-              </div>
-            )}
-
-            {tipoRegistro === 'falta' && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
-                  Justificação (opcional)
-                </label>
-                <Input
-                  value={justificacaoFalta}
-                  onChange={(e) => setJustificacaoFalta(e.target.value)}
-                  placeholder="Ex: Doença, assunto pessoal..."
-                  className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
-                />
-              </div>
-            )}
-
+            {/* Lista de colaboradores */}
             {selectedObra && colaboradores.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Colaboradores da obra</label>
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Colaboradores da obra</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Se já existir registo no dia, o botão vai atualizar (sobrescreve entrada/saída ou falta).
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-2">
-                    {loadingExistentes && (
-                      <span className="text-xs text-slate-500 dark:text-slate-400">A carregar estado...</span>
-                    )}
                     <Button
                       variant="secondary"
                       size="sm"
@@ -1525,11 +1461,23 @@ export function Presencas() {
                   </div>
                 </div>
 
+                <div className="relative">
+                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                  <input
+                    value={registrarSearch}
+                    onChange={(e) => setRegistrarSearch(e.target.value)}
+                    placeholder="Pesquisar na obra..."
+                    className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-sm text-slate-900
+                               focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                               dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
+                </div>
+
                 <div
-                  className="space-y-2 max-h-[420px] overflow-y-auto border border-slate-200 rounded-xl p-3 bg-white
+                  className="space-y-2 max-h-[520px] overflow-y-auto border border-slate-200 rounded-2xl p-3 bg-white
                              dark:border-slate-800/70 dark:bg-slate-950/20"
                 >
-                  {colaboradores.map((colab) => {
+                  {colaboradoresFilteredRegistrar.map((colab) => {
                     const isSelected = selectedColaboradores.has(colab.id);
                     const existente = existentesByColab[colab.id];
                     const jaRegistrado = !!existente;
@@ -1538,7 +1486,7 @@ export function Presencas() {
                       <div
                         key={colab.id}
                         onClick={() => toggleColaborador(colab.id)}
-                        className={`p-3 rounded-lg border-2 cursor-pointer transition ${
+                        className={`p-3 rounded-xl border-2 cursor-pointer transition ${
                           isSelected
                             ? 'border-[#0B4F8A] bg-blue-50 dark:bg-blue-500/10'
                             : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700 dark:bg-slate-950/15'
@@ -1554,23 +1502,20 @@ export function Presencas() {
                           </div>
 
                           {colab.foto_url ? (
-                            <img src={colab.foto_url} alt={colab.nome_completo} className="h-10 w-10 rounded-lg object-cover" />
+                            <img src={colab.foto_url} alt={colab.nome_completo} className="h-10 w-10 rounded-xl object-cover" />
                           ) : (
-                            <div className="h-10 w-10 rounded-lg bg-[#0B4F8A] flex items-center justify-center text-white text-sm font-semibold">
+                            <div className="h-10 w-10 rounded-xl flex items-center justify-center text-white text-sm font-semibold" style={{ background: BRAND.blue }}>
                               {getInitials(colab.nome_completo)}
                             </div>
                           )}
 
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{colab.nome_completo}</div>
-                            {colab.categoria && (
-                              <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{colab.categoria}</div>
-                            )}
+                            {colab.categoria && <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{colab.categoria}</div>}
 
                             {jaRegistrado && existente.status === 'presenca' && (
                               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                {existente.entrada ? isoToHHMM(existente.entrada) : '--'} — {existente.saida ? isoToHHMM(existente.saida) : '--'}
-                                {' · '}
+                                {existente.entrada ? isoToHHMM(existente.entrada) : '--'} — {existente.saida ? isoToHHMM(existente.saida) : '--'} ·{' '}
                                 {existente.total_horas.toFixed(1)}h
                               </div>
                             )}
@@ -1618,11 +1563,38 @@ export function Presencas() {
                       </div>
                     );
                   })}
+
+                  {colaboradoresFilteredRegistrar.length === 0 && (
+                    <div className="text-center py-10 text-slate-500 dark:text-slate-400">
+                      <Users size={40} className="mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+                      <div>Nenhum colaborador encontrado</div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200 dark:bg-blue-500/10 dark:border-blue-500/25">
-                  <div className="text-sm text-blue-900 dark:text-blue-200">
-                    <strong>{selectedColaboradores.size}</strong> colaborador(es) selecionado(s)
+                {/* Barra de ação (fica bem no mobile) */}
+                <div className="sticky bottom-0 z-10">
+                  <div className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white/95 dark:bg-slate-950/70 backdrop-blur p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="text-sm text-slate-700 dark:text-slate-200">
+                      <strong>{selectedCount}</strong> selecionado(s)
+                      {selectedCount > 0 && (
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {' '}
+                          • {selectedHasExisting ? 'vai atualizar' : 'vai registrar'} {tipoRegistro === 'falta' ? 'falta' : 'presença'}
+                        </span>
+                      )}
+                    </div>
+
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={handleRegistrarPresenca}
+                      disabled={!selectedObra || selectedCount === 0 || selectedDateIsSunday || selectedDateOutOfPeriodo}
+                    >
+                      <Plus size={18} className="mr-2" />
+                      {selectedHasExisting
+                        ? `Atualizar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`
+                        : `Registrar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`}
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1634,36 +1606,22 @@ export function Presencas() {
                 <p>Nenhum colaborador alocado nesta obra</p>
               </div>
             )}
-
-            <Button
-              className="w-full"
-              onClick={handleRegistrarPresenca}
-              disabled={!selectedObra || selectedColaboradores.size === 0 || selectedDateIsSunday || selectedDateOutOfPeriodo}
-            >
-              <Plus size={18} className="mr-2" />
-              {selectedColaboradores.size > 0 && Array.from(selectedColaboradores).some((id) => !!existentesByColab[id])
-                ? `Atualizar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`
-                : `Registrar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`}
-            </Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Histórico */}
+      {/* -------------------- HISTÓRICO -------------------- */}
       {viewMode === 'historico' && (
         <Card className={cardBase}>
           <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div className="font-semibold text-slate-900 dark:text-slate-100">Histórico de Registos</div>
 
               <div className="flex flex-col sm:flex-row gap-2">
                 <Select
                   value={filtroObra}
                   onChange={(e) => setFiltroObra(e.target.value)}
-                  options={[
-                    { value: '', label: 'Todas as obras' },
-                    ...obras.map((o) => ({ value: o.id, label: o.nome })),
-                  ]}
+                  options={[{ value: '', label: 'Todas as obras' }, ...obras.map((o) => ({ value: o.id, label: o.nome }))]}
                   className="min-w-[180px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                 />
 
@@ -1677,10 +1635,7 @@ export function Presencas() {
                 <Select
                   value={historicoColaboradorId}
                   onChange={(e) => setHistoricoColaboradorId(e.target.value)}
-                  options={[
-                    { value: '', label: 'Todos os colaboradores' },
-                    ...historicoColaboradoresOptions,
-                  ]}
+                  options={[{ value: '', label: 'Todos os colaboradores' }, ...historicoColaboradoresOptions]}
                   className="min-w-[220px] dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                 />
 
@@ -1699,7 +1654,7 @@ export function Presencas() {
           <CardContent>
             {loadingHistorico ? (
               <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A] dark:border-[#66A7E6]" />
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto" style={{ borderColor: BRAND.blue }} />
               </div>
             ) : historico.length === 0 ? (
               <div className="text-center py-12">
@@ -1707,54 +1662,113 @@ export function Presencas() {
                 <p className="text-slate-500 dark:text-slate-400">Nenhum registo encontrado</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800/70">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Data</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Colaborador</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Entrada</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Saída</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Total</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Status</th>
-                    </tr>
-                  </thead>
+              <>
+                {/* Mobile: cards */}
+                <div className="md:hidden space-y-3">
+                  {historico.map((reg) => (
+                    <div
+                      key={reg.id}
+                      className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white dark:bg-slate-950/35 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {new Date(`${reg.data}T12:00:00`).toLocaleDateString('pt-PT', {
+                              day: '2-digit',
+                              month: 'short',
+                              weekday: 'short',
+                            })}
+                          </div>
+                          <div className="text-sm text-slate-600 dark:text-slate-300 truncate">{reg.colaborador_nome}</div>
+                        </div>
 
-                  <tbody>
-                    {historico.map((reg) => (
-                      <tr
-                        key={reg.id}
-                        className="border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-950/35"
-                      >
-                        <td className="py-3 px-4 text-sm text-slate-900 dark:text-slate-100">
-                          {new Date(reg.data).toLocaleDateString('pt-PT')}
-                        </td>
-                        <td className="py-3 px-4 text-sm font-medium text-slate-900 dark:text-slate-100">
-                          {reg.colaborador_nome}
-                        </td>
-                        <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.entrada || '-'}</td>
-                        <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.saida || '-'}</td>
-                        <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          {reg.faltou ? '-' : `${reg.total_horas.toFixed(1)}h`}
-                        </td>
-                        <td className="py-3 px-4">
-                          {reg.faltou ? (
-                            <Badge variant="danger">
-                              <UserX size={12} className="mr-1" />
-                              Falta
-                            </Badge>
-                          ) : (
-                            <Badge variant="success">
-                              <CheckCircle size={12} className="mr-1" />
-                              Presente
-                            </Badge>
-                          )}
-                        </td>
+                        {reg.faltou ? (
+                          <Badge variant="danger">
+                            <UserX size={12} className="mr-1" />
+                            Falta
+                          </Badge>
+                        ) : (
+                          <Badge variant="success">
+                            <CheckCircle size={12} className="mr-1" />
+                            Presente
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Entrada</div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{reg.entrada || '—'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Saída</div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{reg.saida || '—'}</div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">Total</div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {reg.faltou ? '—' : `${reg.total_horas.toFixed(1)}h`}
+                          </div>
+                        </div>
+                      </div>
+
+                      {reg.faltou && reg.justificacao_falta && (
+                        <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+                          <span className="font-semibold">Justificação:</span> {reg.justificacao_falta}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop: tabela */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800/70">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Data</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Colaborador</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Entrada</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Saída</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Total</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-200">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+
+                    <tbody>
+                      {historico.map((reg) => (
+                        <tr
+                          key={reg.id}
+                          className="border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-950/35"
+                        >
+                          <td className="py-3 px-4 text-sm text-slate-900 dark:text-slate-100">
+                            {new Date(`${reg.data}T12:00:00`).toLocaleDateString('pt-PT')}
+                          </td>
+                          <td className="py-3 px-4 text-sm font-medium text-slate-900 dark:text-slate-100">{reg.colaborador_nome}</td>
+                          <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.entrada || '-'}</td>
+                          <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.saida || '-'}</td>
+                          <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {reg.faltou ? '-' : `${reg.total_horas.toFixed(1)}h`}
+                          </td>
+                          <td className="py-3 px-4">
+                            {reg.faltou ? (
+                              <Badge variant="danger">
+                                <UserX size={12} className="mr-1" />
+                                Falta
+                              </Badge>
+                            ) : (
+                              <Badge variant="success">
+                                <CheckCircle size={12} className="mr-1" />
+                                Presente
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -1797,10 +1811,7 @@ export function Presencas() {
               Remover do dia
             </Button>
 
-            <Button
-              onClick={handleSaveEdit}
-              disabled={editSaving || !editColab || selectedDateIsSunday || !selectedObra || selectedDateOutOfPeriodo}
-            >
+            <Button onClick={handleSaveEdit} disabled={editSaving || !editColab || selectedDateIsSunday || !selectedObra || selectedDateOutOfPeriodo}>
               {editSaving ? 'Salvando...' : 'Salvar'}
             </Button>
           </>
@@ -1813,11 +1824,7 @@ export function Presencas() {
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
               <div className="text-xs text-slate-500 dark:text-slate-400">Período ativo</div>
               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{periodoLabel}</div>
-              {selectedDateOutOfPeriodo && (
-                <div className="mt-2 text-xs text-amber-800 dark:text-amber-200">
-                  Esta data está fora do período. Ajuste a data no ecrã “Registrar”.
-                </div>
-              )}
+              {selectedDateOutOfPeriodo && <div className="mt-2 text-xs text-amber-800 dark:text-amber-200">Esta data está fora do período.</div>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1829,14 +1836,8 @@ export function Presencas() {
               </div>
               <div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Data</div>
-                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                  {new Date(`${selectedDate}T00:00:00`).toLocaleDateString('pt-PT')}
-                </div>
-                {selectedDateIsSunday && (
-                  <div className="mt-1 text-xs text-red-700 dark:text-red-300">
-                    Domingo: o sistema bloqueia edição/registo.
-                  </div>
-                )}
+                <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{new Date(`${selectedDate}T12:00:00`).toLocaleDateString('pt-PT')}</div>
+                {selectedDateIsSunday && <div className="mt-1 text-xs text-red-700 dark:text-red-300">Domingo: bloqueado.</div>}
               </div>
             </div>
 
@@ -1894,17 +1895,13 @@ export function Presencas() {
                 <div className="sm:col-span-2">
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     Total calculado:{' '}
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">
-                      {editDiffPreview !== null ? `${editDiffPreview.toFixed(2)}h` : '—'}
-                    </span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">{editDiffPreview !== null ? `${editDiffPreview.toFixed(2)}h` : '—'}</span>
                   </div>
                 </div>
               </div>
             ) : (
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">
-                  Justificação (opcional)
-                </label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Justificação (opcional)</label>
                 <Input
                   value={editJustificacao}
                   onChange={(e) => setEditJustificacao(e.target.value)}
@@ -1914,7 +1911,7 @@ export function Presencas() {
               </div>
             )}
 
-            {existentesByColab[editColab.id] && (
+            {editColab && existentesByColab[editColab.id] && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Estado atual</div>

@@ -123,9 +123,23 @@ function formatEUR(v: number) {
   return new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(v);
 }
 
+function isHHMM(v: string) {
+  // 00:00–23:59
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(v || '').trim());
+}
+
+function safeTimeOrDefault(v: unknown, fallback: string) {
+  const s = String(v ?? '').trim();
+  return isHHMM(s) ? s : fallback;
+}
+
+function safeTimezoneOrDefault(v: unknown, fallback: string) {
+  const s = String(v ?? '').trim();
+  return s ? s : fallback;
+}
+
 function safeDateForLocale(dateISO: string) {
   // Evita “voltar um dia” por timezone (usa meio-dia local).
-  // YYYY-MM-DD -> YYYY-MM-DDT12:00:00
   return new Date(`${dateISO}T12:00:00`);
 }
 
@@ -173,11 +187,11 @@ function normalizeFeriado(row: any): Feriado {
 function normalizeConfigRow(row: any): SistemaConfig {
   return {
     dia_fecho_periodo: clamp(toNumber(row.dia_fecho_periodo, DEFAULT_CONFIG.dia_fecho_periodo), 1, 31),
-    timezone: String(row.timezone ?? DEFAULT_CONFIG.timezone),
+    timezone: safeTimezoneOrDefault(row.timezone, DEFAULT_CONFIG.timezone),
 
     horas_dia: Math.max(1, toNumber(row.horas_dia, DEFAULT_CONFIG.horas_dia)),
-    hora_entrada: String(row.hora_entrada ?? DEFAULT_CONFIG.hora_entrada),
-    hora_saida: String(row.hora_saida ?? DEFAULT_CONFIG.hora_saida),
+    hora_entrada: safeTimeOrDefault(row.hora_entrada, DEFAULT_CONFIG.hora_entrada),
+    hora_saida: safeTimeOrDefault(row.hora_saida, DEFAULT_CONFIG.hora_saida),
     pausa_minutos: Math.max(0, toNumber(row.pausa_minutos, DEFAULT_CONFIG.pausa_minutos)),
     descontar_pausa: toBool(row.descontar_pausa, DEFAULT_CONFIG.descontar_pausa),
 
@@ -211,10 +225,13 @@ export function Configuracoes() {
   const [cargoSearch, setCargoSearch] = useState('');
   const [cargoStatus, setCargoStatus] = useState<'todos' | 'ativos' | 'inativos'>('todos');
 
+  // Datas “fixas” da sessão (não recria Date a cada render)
+  const now = useMemo(() => new Date(), []);
+  const currentYear = now.getFullYear();
+
   // Filtros Feriados
-  const today = new Date();
   const [feriadoSearch, setFeriadoSearch] = useState('');
-  const [feriadoAno, setFeriadoAno] = useState<number>(today.getFullYear());
+  const [feriadoAno, setFeriadoAno] = useState<number>(currentYear);
   const [feriadoMes, setFeriadoMes] = useState<number | 'todos'>('todos');
 
   // Config do sistema
@@ -256,9 +273,7 @@ export function Configuracoes() {
     if (feriadosRes.data) setFeriados((feriadosRes.data as any[]).map(normalizeFeriado));
 
     if (cfgRes.error) {
-      // Não assume causa: só reporta o que aconteceu
       console.error(cfgRes.error);
-      // se não existir registro ainda, cfgRes.error pode vir null com data null; aqui é erro real
       toast.error('Não foi possível carregar configurações (permissões/RLS).');
       setCfg(DEFAULT_CONFIG);
       setCfgBase(DEFAULT_CONFIG);
@@ -267,7 +282,6 @@ export function Configuracoes() {
       setCfg(merged);
       setCfgBase(merged);
     } else {
-      // registro não existe -> fica no default
       setCfg(DEFAULT_CONFIG);
       setCfgBase(DEFAULT_CONFIG);
     }
@@ -335,9 +349,9 @@ export function Configuracoes() {
 
   const feriadoAnosOptions = useMemo(() => {
     const years = new Set<number>(feriados.map((f) => yearOf(f.data)));
-    years.add(today.getFullYear());
+    years.add(currentYear);
     return Array.from(years).sort((a, b) => b - a);
-  }, [feriados, today]);
+  }, [feriados, currentYear]);
 
   const feriadosFiltered = useMemo(() => {
     const s = feriadoSearch.trim().toLowerCase();
@@ -396,6 +410,16 @@ export function Configuracoes() {
     };
   }, [cfg]);
 
+  const cfgIsValid = useMemo(() => {
+    if (!cfg.timezone?.trim()) return false;
+    if (!isHHMM(cfg.hora_entrada)) return false;
+    if (!isHHMM(cfg.hora_saida)) return false;
+    if (cfg.dia_fecho_periodo < 1 || cfg.dia_fecho_periodo > 31) return false;
+    if (cfg.horas_dia < 1) return false;
+    if (cfg.multiplicador_hora_extra < 1) return false;
+    return true;
+  }, [cfg]);
+
   const setCfgField = <K extends keyof SistemaConfig>(key: K, value: SistemaConfig[K]) => {
     setCfg((prev) => ({ ...prev, [key]: value }));
   };
@@ -411,13 +435,17 @@ export function Configuracoes() {
   };
 
   const saveConfig = async () => {
+    if (!cfgIsValid) {
+      toast.error('Config inválida: verifique timezone e horas (HH:MM).');
+      return;
+    }
+
     setSavingCfg(true);
     try {
-      // payload alinhado com schema real da tabela configuracoes_sistema
       const payload = {
         id: CONFIG_ID,
         dia_fecho_periodo: clamp(cfg.dia_fecho_periodo, 1, 31),
-        timezone: cfg.timezone,
+        timezone: safeTimezoneOrDefault(cfg.timezone, DEFAULT_CONFIG.timezone),
 
         horas_dia: cfg.horas_dia,
         hora_entrada: cfg.hora_entrada,
@@ -435,9 +463,6 @@ export function Configuracoes() {
         dias_aviso_documentos: cfg.dias_aviso_documentos,
         documento_vencido_bloqueia_presenca: cfg.documento_vencido_bloqueia_presenca,
         documento_vencido_bloqueia_alocacao: cfg.documento_vencido_bloqueia_alocacao,
-
-        // updated_at no banco já tem default + trigger, mas não atrapalha enviar
-        updated_at: new Date().toISOString(),
       };
 
       const res = await supabase
@@ -526,7 +551,7 @@ export function Configuracoes() {
           </div>
 
           <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-2 justify-end">
+            <div className="flex items-center gap-2 justify-end flex-wrap">
               <Button variant="secondary" onClick={loadData}>
                 <RefreshCcw size={16} className="mr-2" />
                 Atualizar
@@ -549,9 +574,15 @@ export function Configuracoes() {
 
               <Button
                 onClick={saveConfig}
-                disabled={!cfgDirty || savingCfg}
-                className={!cfgDirty ? 'opacity-60 cursor-not-allowed' : ''}
-                title={!cfgDirty ? 'Sem alterações para guardar' : 'Guardar alterações'}
+                disabled={!cfgDirty || savingCfg || !cfgIsValid}
+                className={!cfgDirty || !cfgIsValid ? 'opacity-60 cursor-not-allowed' : ''}
+                title={
+                  !cfgIsValid
+                    ? 'Config inválida (timezone e horas HH:MM)'
+                    : !cfgDirty
+                      ? 'Sem alterações para guardar'
+                      : 'Guardar alterações'
+                }
               >
                 {savingCfg ? 'A guardar…' : 'Guardar alterações'}
               </Button>
@@ -560,6 +591,11 @@ export function Configuracoes() {
             {cfgDirty && (
               <div className="text-xs text-amber-700 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 px-3 py-1.5 rounded-xl">
                 Existem alterações pendentes. Guarde para aplicar nas regras do sistema.
+              </div>
+            )}
+            {!cfgIsValid && (
+              <div className="text-xs text-red-700 dark:text-red-200 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 px-3 py-1.5 rounded-xl">
+                Config inválida: verifique timezone e horas (HH:MM).
               </div>
             )}
           </div>
