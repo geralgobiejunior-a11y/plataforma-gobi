@@ -1,5 +1,5 @@
 // src/pages/Pagamentos.tsx
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -57,9 +57,27 @@ const cardBase =
   'border border-slate-200 bg-white shadow-sm ' +
   'dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30';
 
-function safeDateISO(y: number, m: number, d: number) {
-  const dt = new Date(y, m - 1, d);
-  return dt.toISOString().split('T')[0];
+// REGRA DO PERÍODO:
+// Mês “fecha” no dia 23 => o período do “mês selecionado” é de 24 do mês anterior até 23 do mês selecionado (inclusive).
+const FECHO_DIA = 23;
+const INICIO_DIA = FECHO_DIA + 1; // 24
+
+function toISODateUTC(d: Date) {
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function periodRangeByClosingDay(year: number, month: number) {
+  // month: 1..12 (mês de fecho)
+  // Ex.: seleciona 2026-01 => 2025-12-24 até 2026-01-23
+  const end = new Date(Date.UTC(year, month - 1, FECHO_DIA));
+  const start = new Date(Date.UTC(year, month - 2, INICIO_DIA)); // month-2 => mês anterior (Date.UTC ajusta ano automaticamente)
+
+  return {
+    startDate: start,
+    endDate: end,
+    startISO: toISODateUTC(start),
+    endISO: toISODateUTC(end),
+  };
 }
 
 function formatDatePT(date?: string | null) {
@@ -67,6 +85,13 @@ function formatDatePT(date?: string | null) {
   const d = new Date(date);
   if (Number.isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('pt-PT');
+}
+
+function formatDateShortPT(date?: string | null) {
+  if (!date) return '—';
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
 }
 
 function formatTimePT(ts?: string | null) {
@@ -92,8 +117,10 @@ export default function Pagamentos() {
 
   const now = new Date();
 
-  // UI: usar UM seletor de mês (igual ao módulo de presenças), evitando dois selects.
-  const [periodo, setPeriodo] = useState<string>(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  // UI: seletor único mês (mês do FECHO, dia 23)
+  const [periodo, setPeriodo] = useState<string>(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  );
 
   const { selectedYear, selectedMonth } = useMemo(() => {
     const [y, m] = String(periodo).split('-');
@@ -105,11 +132,16 @@ export default function Pagamentos() {
     };
   }, [periodo, now]);
 
+  const { rangeStartISO, rangeEndISO } = useMemo(() => {
+    const r = periodRangeByClosingDay(selectedYear, selectedMonth);
+    return { rangeStartISO: r.startISO, rangeEndISO: r.endISO };
+  }, [selectedYear, selectedMonth]);
+
   const [colaboradores, setColaboradores] = useState<ColaboradorPagamento[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState('');
-  const [colaboradorFilterId, setColaboradorFilterId] = useState<string>(''); // NOVO: filtro por colaborador
+  const [colaboradorFilterId, setColaboradorFilterId] = useState<string>(''); // filtro por colaborador
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedColaborador, setSelectedColaborador] = useState<ColaboradorPagamento | null>(null);
@@ -139,18 +171,17 @@ export default function Pagamentos() {
   );
 
   const periodoLabel = useMemo(() => {
-    const mm = String(selectedMonth).padStart(2, '0');
-    return `${monthNames[selectedMonth - 1]} ${selectedYear} • 01/${mm} a 22/${mm}`;
-  }, [monthNames, selectedMonth, selectedYear]);
+    // rótulo do período (pode atravessar mês/ano)
+    return `${formatDatePT(rangeStartISO)} a ${formatDatePT(rangeEndISO)}`;
+  }, [rangeStartISO, rangeEndISO]);
 
   useEffect(() => {
     loadColaboradoresPagamento();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedYear, selectedMonth]);
+  }, [rangeStartISO, rangeEndISO]);
 
   useEffect(() => {
     if (!openObrasFor) return;
-
     const onDocClick = () => setOpenObrasFor(null);
     document.addEventListener('click', onDocClick);
     return () => document.removeEventListener('click', onDocClick);
@@ -159,7 +190,10 @@ export default function Pagamentos() {
   const eur = (v: number) => new Intl.NumberFormat('pt-PT', { style: 'currency', currency: 'EUR' }).format(v);
 
   const getInitials = (name: string) => {
-    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    const parts = String(name || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
     if (parts.length === 0) return '??';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
@@ -168,9 +202,6 @@ export default function Pagamentos() {
   const loadColaboradoresPagamento = async () => {
     setLoading(true);
     try {
-      const dataInicioStr = safeDateISO(selectedYear, selectedMonth, 1);
-      const dataFimStr = safeDateISO(selectedYear, selectedMonth, 22);
-
       const { data, error } = await supabase
         .from('presencas_dia')
         .select(
@@ -183,8 +214,8 @@ export default function Pagamentos() {
           colaborador:colaboradores(*)
         `
         )
-        .gte('data', dataInicioStr)
-        .lte('data', dataFimStr);
+        .gte('data', rangeStartISO)
+        .lte('data', rangeEndISO);
 
       if (error) throw error;
 
@@ -276,6 +307,9 @@ export default function Pagamentos() {
     } catch (e: any) {
       console.error(e);
       toast.error('Erro ao carregar dados do financeiro');
+
+      // NOTA objetiva: se tua tabela presencas_dia NÃO tiver as colunas "faltou" / "justificacao_falta",
+      // este select vai falhar. Nesse caso, remove essas colunas do select e define outra regra para faltas.
       setColaboradores([]);
     } finally {
       setLoading(false);
@@ -287,7 +321,6 @@ export default function Pagamentos() {
 
     let list = colaboradores;
 
-    // NOVO: filtro direto por colaborador
     if (colaboradorFilterId) {
       list = list.filter((c) => c.id === colaboradorFilterId);
     }
@@ -325,6 +358,8 @@ export default function Pagamentos() {
       'IBAN',
       'Obras',
       'Último registo',
+      'Período Início',
+      'Período Fim',
     ];
 
     const rows = filtered.map((c) => [
@@ -337,6 +372,8 @@ export default function Pagamentos() {
       csvEscape(c.iban || ''),
       csvEscape(c.obras_trabalhadas.join('; ')),
       csvEscape(c.ultimo_registro ? formatDatePT(c.ultimo_registro) : ''),
+      csvEscape(rangeStartISO),
+      csvEscape(rangeEndISO),
     ]);
 
     const csv = [headers.map(csvEscape).join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -345,7 +382,7 @@ export default function Pagamentos() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(2, '0')}.csv`;
+    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(2, '0')}_${rangeStartISO}_a_${rangeEndISO}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -376,9 +413,6 @@ export default function Pagamentos() {
   const loadDailyDetails = async (colaboradorId: string) => {
     setLoadingDetails(true);
     try {
-      const dataInicioStr = safeDateISO(selectedYear, selectedMonth, 1);
-      const dataFimStr = safeDateISO(selectedYear, selectedMonth, 22);
-
       const { data: dias, error } = await supabase
         .from('presencas_dia')
         .select(
@@ -392,8 +426,8 @@ export default function Pagamentos() {
         `
         )
         .eq('colaborador_id', colaboradorId)
-        .gte('data', dataInicioStr)
-        .lte('data', dataFimStr)
+        .gte('data', rangeStartISO)
+        .lte('data', rangeEndISO)
         .order('data', { ascending: false });
 
       if (error) throw error;
@@ -405,25 +439,24 @@ export default function Pagamentos() {
 
       if (ids.length > 0) {
         const { data: regs, error: regsErr } = await supabase
-  .from('presencas_registos')
-  .select('presenca_dia_id, tipo, momento')
-  .in('presenca_dia_id', ids)
-  .order('momento', { ascending: true });
+          .from('presencas_registos')
+          .select('presenca_dia_id, tipo, momento')
+          .in('presenca_dia_id', ids)
+          .order('momento', { ascending: true });
 
-if (regsErr) throw regsErr;
+        if (regsErr) throw regsErr;
 
-(regs || []).forEach((r: any) => {
-  const pid = String(r.presenca_dia_id);
-  const tipo = String(r.tipo);
-  const ts = r.momento ? String(r.momento) : null;
+        (regs || []).forEach((r: any) => {
+          const pid = String(r.presenca_dia_id);
+          const tipo = String(r.tipo);
+          const ts = r.momento ? String(r.momento) : null;
 
-  if (!registosMap.has(pid)) registosMap.set(pid, { entrada: null, saida: null });
+          if (!registosMap.has(pid)) registosMap.set(pid, { entrada: null, saida: null });
 
-  const cur = registosMap.get(pid)!;
-  if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts; // primeira entrada
-  if (tipo === 'saida') cur.saida = ts; // última saída
-});
-
+          const cur = registosMap.get(pid)!;
+          if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts; // primeira entrada
+          if (tipo === 'saida') cur.saida = ts; // última saída
+        });
       }
 
       const details: DailyDetail[] = presencas.map((p) => {
@@ -461,10 +494,7 @@ if (regsErr) throw regsErr;
   ) => (
     <Card className={`p-4 ${cardBase}`}>
       <div className="flex items-center gap-3">
-        <div
-          className="p-2 rounded-lg"
-          style={{ background: tone === 'warn' ? '#FEF3C7' : '#EFF6FF' }}
-        >
+        <div className="p-2 rounded-lg" style={{ background: tone === 'warn' ? '#FEF3C7' : '#EFF6FF' }}>
           {icon}
         </div>
         <div className="min-w-0">
@@ -483,12 +513,19 @@ if (regsErr) throw regsErr;
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Folha de Pagamento</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-            Apuramento por colaborador (período 1–22), com horas, faltas e total a pagar.
+            Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado), com horas, faltas e total a pagar.
           </p>
+          <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+            Período atual: <span className="font-semibold">{periodoLabel}</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 justify-end">
-          <Button variant="secondary" onClick={exportCSV} className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60">
+          <Button
+            variant="secondary"
+            onClick={exportCSV}
+            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+          >
             <Download size={16} className="mr-2" />
             Exportar CSV
           </Button>
@@ -502,7 +539,11 @@ if (regsErr) throw regsErr;
             Exportar PDF
           </Button>
 
-          <Button variant="secondary" onClick={loadColaboradoresPagamento} className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60">
+          <Button
+            variant="secondary"
+            onClick={loadColaboradoresPagamento}
+            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+          >
             Atualizar
           </Button>
         </div>
@@ -527,16 +568,18 @@ if (regsErr) throw regsErr;
         <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4 mb-6">
           {/* Período + filtros */}
           <div className="flex flex-col sm:flex-row sm:items-end gap-3">
-            <div className="min-w-[260px]">
-              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">{monthNames[selectedMonth - 1]} {selectedYear}</div>
+            <div className="min-w-[280px]">
+              <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                {monthNames[selectedMonth - 1]} {selectedYear} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(fecho dia {FECHO_DIA})</span>
+              </div>
               <div className="text-xs text-slate-600 dark:text-slate-400">
-                01/{String(selectedMonth).padStart(2, '0')} a 22/{String(selectedMonth).padStart(2, '0')}
+                {formatDateShortPT(rangeStartISO)} a {formatDateShortPT(rangeEndISO)}
               </div>
             </div>
 
-            {/* NOVO: seletor único mês */}
+            {/* seletor único mês */}
             <div>
-              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Mês</div>
+              <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Mês (fecho)</div>
               <Input
                 type="month"
                 value={periodo}
@@ -545,7 +588,7 @@ if (regsErr) throw regsErr;
               />
             </div>
 
-            {/* NOVO: filtro por colaborador */}
+            {/* filtro por colaborador */}
             <div>
               <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Colaborador</div>
               <Select
@@ -761,7 +804,12 @@ if (regsErr) throw regsErr;
                       </td>
 
                       <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
-                        <Button size="sm" variant="secondary" onClick={() => openDetails(c)} className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => openDetails(c)}
+                          className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                        >
                           <Eye size={14} className="mr-1" />
                           Ver
                         </Button>
@@ -1020,8 +1068,7 @@ if (regsErr) throw regsErr;
               </div>
 
               <div className="text-xs text-slate-400 dark:text-slate-500">
-                Nota: entrada/saída vem de <span className="font-semibold">presencas_registos</span>. Se faltar entrada
-                ou saída, aparece “—”.
+                Nota: entrada/saída vem de <span className="font-semibold">presencas_registos</span>. Se faltar entrada ou saída, aparece “—”.
               </div>
             </div>
           </div>

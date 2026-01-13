@@ -79,20 +79,62 @@ const cardBase =
   'border border-slate-200 bg-white shadow-sm ' +
   'dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30';
 
-function calcularMetaMes(mesIndex0: number, ano: number): number {
-  const dataInicio = new Date(ano, mesIndex0, 1);
-  const dataFim = new Date(ano, mesIndex0, 22);
+// --- Período: 24 -> 23 (mês de fecho dia 23) ---
+
+function safeDateISO(y: number, m1: number, d: number) {
+  const dt = new Date(y, m1 - 1, d);
+  return dt.toISOString().split('T')[0];
+}
+
+function getPeriodo24a23(ano: number, mes1: number) {
+  const end = safeDateISO(ano, mes1, 23);
+
+  let prevMes1 = mes1 - 1;
+  let prevAno = ano;
+  if (prevMes1 < 1) {
+    prevMes1 = 12;
+    prevAno = ano - 1;
+  }
+
+  const start = safeDateISO(prevAno, prevMes1, 24);
+
+  return {
+    startISO: start,
+    endISO: end,
+    startAno: prevAno,
+    startMes1: prevMes1,
+    endAno: ano,
+    endMes1: mes1,
+  };
+}
+
+function calcularMetaPeriodo(startISO: string, endISO: string): number {
+  const dataInicio = new Date(`${startISO}T00:00:00`);
+  const dataFim = new Date(`${endISO}T00:00:00`);
+  if (Number.isNaN(dataInicio.getTime()) || Number.isNaN(dataFim.getTime())) return 0;
 
   let diasUteis = 0;
-  const current = new Date(dataInicio);
+  const cur = new Date(dataInicio);
 
-  while (current <= dataFim) {
-    const diaSemana = current.getDay();
-    if (diaSemana !== 0 && diaSemana !== 6) diasUteis++;
-    current.setDate(current.getDate() + 1);
+  while (cur <= dataFim) {
+    const dow = cur.getDay();
+    // seg-sex
+    if (dow !== 0 && dow !== 6) diasUteis++;
+    cur.setDate(cur.getDate() + 1);
   }
 
   return diasUteis * HORAS_DIA;
+}
+
+function isBetweenISO(dateISO: string, startISO: string, endISO: string) {
+  // ISO YYYY-MM-DD compara lexicograficamente
+  return dateISO >= startISO && dateISO <= endISO;
+}
+
+function clampISO(dateISO: string, startISO: string, endISO: string) {
+  if (dateISO < startISO) return startISO;
+  if (dateISO > endISO) return endISO;
+  return dateISO;
 }
 
 function safeNumber(v: any, fallback = 0) {
@@ -239,28 +281,40 @@ export function Presencas() {
   // Metas por colaborador
   const [metasByColab, setMetasByColab] = useState<Record<string, number>>({});
 
-  const { anoPeriodo, mesPeriodo1, mesPeriodo0, metaMesDefault, rangeInicio, rangeFim } = useMemo(() => {
-  const [a, m] = String(periodo).split('-');
-  const ano = safeNumber(a, anoNow);
-  const mes1 = safeNumber(m, mesNow0 + 1);
-  const mes0 = Math.max(0, Math.min(11, mes1 - 1));
+  const { anoPeriodo, mesPeriodo1, mesPeriodo0, metaMesDefault, rangeInicio, rangeFim, periodoLabel } = useMemo(() => {
+    const [a, m] = String(periodo).split('-');
+    const ano = safeNumber(a, anoNow);
+    const mes1 = safeNumber(m, mesNow0 + 1);
+    const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
-  // Meta continua até dia 22 (como você queria)
-  const metaDefault = calcularMetaMes(mes0, ano);
+    const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo24a23(ano, mes1);
 
-  // Resumo passa a pegar o mês inteiro
-  const primeiroDia = new Date(ano, mes0, 1).toISOString().split('T')[0];
-  const ultimoDiaMes = new Date(ano, mes0 + 1, 0).toISOString().split('T')[0]; // último dia do mês
+    const metaDefault = calcularMetaPeriodo(startISO, endISO);
 
-  return {
-    anoPeriodo: ano,
-    mesPeriodo1: mes1,
-    mesPeriodo0: mes0,
-    metaMesDefault: metaDefault,
-    rangeInicio: primeiroDia,
-    rangeFim: ultimoDiaMes,
-  };
-}, [periodo, anoNow, mesNow0]);
+    const startLabel = `24/${String(startMes1).padStart(2, '0')}/${startAno}`;
+    const endLabel = `23/${String(endMes1).padStart(2, '0')}/${endAno}`;
+    const label = `${startLabel} → ${endLabel}`;
+
+    return {
+      anoPeriodo: ano,
+      mesPeriodo1: mes1,
+      mesPeriodo0: mes0,
+      metaMesDefault: metaDefault,
+      rangeInicio: startISO,
+      rangeFim: endISO,
+      periodoLabel: label,
+    };
+  }, [periodo, anoNow, mesNow0]);
+
+  // Garante que a data selecionada do "Registrar" fique dentro do período 24→23
+  useEffect(() => {
+    if (viewMode !== 'registrar') return;
+
+    const todayISO = new Date().toISOString().split('T')[0];
+    const clamped = clampISO(selectedDate || todayISO, rangeInicio, rangeFim);
+    if (clamped !== selectedDate) setSelectedDate(clamped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, rangeInicio, rangeFim]);
 
   useEffect(() => {
     loadObras();
@@ -281,10 +335,9 @@ export function Presencas() {
   useEffect(() => {
     if (viewMode === 'historico') loadHistorico();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, filtroObra, filtroMes]);
+  }, [viewMode, filtroObra, filtroMes, historicoColaboradorId]);
 
   useEffect(() => {
-    // quando muda a data no registrar, recarrega os existentes (se já temos lista de colaboradores)
     if (viewMode !== 'registrar') return;
     if (!selectedObra) return;
     if (!colaboradores.length) return;
@@ -490,7 +543,6 @@ export function Presencas() {
 
     setColaboradores(colabs);
 
-    // amarra com registros já existentes para essa obra+data
     await loadExistentesRegistrar(selectedObra, selectedDate, colabs);
   };
 
@@ -578,11 +630,12 @@ export function Presencas() {
       if (filtroObra) query = query.eq('obra_id', filtroObra);
 
       if (filtroMes) {
-        const [ano, mes] = filtroMes.split('-');
-       const primeiroDia = `${ano}-${mes}-01`;
-const nextMonth = new Date(Number(ano), Number(mes) - 1 + 1, 1).toISOString().split('T')[0]; // 1º dia do mês seguinte
-query = query.gte('data', primeiroDia).lt('data', nextMonth);
+        const [a, m] = filtroMes.split('-');
+        const ano = safeNumber(a, anoNow);
+        const mes1 = safeNumber(m, mesNow0 + 1);
 
+        const { startISO, endISO } = getPeriodo24a23(ano, mes1);
+        query = query.gte('data', startISO).lte('data', endISO);
       }
 
       const { data, error } = await query;
@@ -602,7 +655,6 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
         const entradaTs = registos.find((r: any) => r.tipo === 'entrada')?.momento ?? null;
         const saidaTs = registos.find((r: any) => r.tipo === 'saida')?.momento ?? null;
 
-        // compatibilidade: se não houver registo "falta", infere falta quando total=0 e sem entrada/saida
         const inferido = !falta && safeNumber(p.total_horas, 0) === 0 && !entradaTs && !saidaTs;
         const faltou = !!falta || inferido;
 
@@ -621,11 +673,13 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
         };
       });
 
-      setHistorico(registros);
+      let registrosFinal = registros;
 
-      if (historicoColaboradorId && !registros.some((r) => r.colaborador_id === historicoColaboradorId)) {
-        setHistoricoColaboradorId('');
+      if (historicoColaboradorId) {
+        registrosFinal = registrosFinal.filter((r) => r.colaborador_id === historicoColaboradorId);
       }
+
+      setHistorico(registrosFinal);
     } catch (e: any) {
       console.error('[loadHistorico] erro inesperado:', e);
       toast.error('Erro ao carregar histórico');
@@ -664,7 +718,6 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
         presenca_dia_id: presencaDia.id,
         tipo: 'falta',
         momento: momentoFalta,
-        // opcional: se vazio, grava string vazia (não quebra se o campo for NOT NULL)
         observacao: justificacao.trim() || '',
       },
     ]);
@@ -741,6 +794,19 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
     setEditOpen(true);
   };
 
+  const selectedDateIsSunday = useMemo(() => isSundayISO(selectedDate), [selectedDate]);
+  const selectedDateOutOfPeriodo = useMemo(() => !isBetweenISO(selectedDate, rangeInicio, rangeFim), [selectedDate, rangeInicio, rangeFim]);
+
+  const editDiffPreview = useMemo(() => {
+    if (editStatus !== 'presenca') return null;
+    const entrada = new Date(`${selectedDate}T${editEntrada}:00`);
+    const saida = new Date(`${selectedDate}T${editSaida}:00`);
+    if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) return null;
+    if (saida.getTime() <= entrada.getTime()) return null;
+    const diffHoras = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
+    return diffHoras;
+  }, [editStatus, editEntrada, editSaida, selectedDate]);
+
   const handleSaveEdit = async () => {
     if (!editColab) return;
     if (!selectedObra) {
@@ -748,12 +814,15 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
       return;
     }
 
-    if (isSundayISO(selectedDate)) {
-      toast.error('Não é permitido registrar/editar no domingo');
+    if (selectedDateOutOfPeriodo) {
+      toast.error(`Data fora do período selecionado (${periodoLabel})`);
       return;
     }
 
-    // Justificação é opcional — não valida aqui
+    if (selectedDateIsSunday) {
+      toast.error('Não é permitido registrar/editar no domingo');
+      return;
+    }
 
     setEditSaving(true);
     try {
@@ -788,6 +857,11 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
       return;
     }
 
+    if (selectedDateOutOfPeriodo) {
+      toast.error(`Data fora do período selecionado (${periodoLabel})`);
+      return;
+    }
+
     setEditSaving(true);
     try {
       await limparRegistoDia(editColab.id);
@@ -814,13 +888,15 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
       return;
     }
 
-    // Bloqueio de domingo
-    if (isSundayISO(selectedDate)) {
-      toast.error('Não é permitido registrar no domingo');
+    if (selectedDateOutOfPeriodo) {
+      toast.error(`Data fora do período selecionado (${periodoLabel})`);
       return;
     }
 
-    // Justificação é opcional — não bloqueia aqui
+    if (selectedDateIsSunday) {
+      toast.error('Não é permitido registrar no domingo');
+      return;
+    }
 
     if (tipoRegistro === 'presenca') {
       const entrada = new Date(`${selectedDate}T${horaEntrada}:00`);
@@ -918,20 +994,15 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
       .map(([id, nome]) => ({ value: id, label: nome }));
   }, [historico]);
 
-  const historicoFiltrado = useMemo(() => {
-    if (!historicoColaboradorId) return historico;
-    return historico.filter((h) => h.colaborador_id === historicoColaboradorId);
-  }, [historico, historicoColaboradorId]);
-
   const exportHistoricoCSV = () => {
-    if (!historicoFiltrado.length) {
+    if (!historico.length) {
       toast.error('Sem dados para exportar');
       return;
     }
 
     const rows: string[][] = [
       ['Data', 'Colaborador', 'Entrada', 'Saída', 'Total (h)', 'Status', 'Justificação'],
-      ...historicoFiltrado.map((r) => [
+      ...historico.map((r) => [
         new Date(r.data).toLocaleDateString('pt-PT'),
         r.colaborador_nome,
         r.entrada || '',
@@ -955,18 +1026,6 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
     URL.revokeObjectURL(url);
   };
 
-  const selectedDateIsSunday = useMemo(() => isSundayISO(selectedDate), [selectedDate]);
-
-  const editDiffPreview = useMemo(() => {
-    if (editStatus !== 'presenca') return null;
-    const entrada = new Date(`${selectedDate}T${editEntrada}:00`);
-    const saida = new Date(`${selectedDate}T${editSaida}:00`);
-    if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) return null;
-    if (saida.getTime() <= entrada.getTime()) return null;
-    const diffHoras = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
-    return diffHoras;
-  }, [editStatus, editEntrada, editSaida, selectedDate]);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -977,7 +1036,8 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
               <div>
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Presenças & Faltas</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                  Horas (até dia 22), faltas, metas e histórico por colaborador
+                  Apuramento por período <span className="font-semibold">24 → 23</span> (fecho dia 23).{' '}
+                  <span className="font-semibold">{periodoLabel}</span>
                 </p>
               </div>
 
@@ -1013,13 +1073,14 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
             {viewMode === 'resumo' && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Período (mês)</div>
+                  <div className="text-xs text-slate-600 dark:text-slate-400 mb-1">Período (mês de fecho)</div>
                   <Input
                     type="month"
                     value={periodo}
                     onChange={(e) => setPeriodo(e.target.value)}
                     className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
                   />
+                  <div className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{periodoLabel}</div>
                 </div>
 
                 <div>
@@ -1059,9 +1120,9 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
               <CardContent className="p-5">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm text-slate-500 dark:text-slate-400">Meta padrão do mês</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400">Meta padrão do período</div>
                     <div className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">{metaMesDefault}h</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">8h/dia (seg–sex) até dia 22</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">8h/dia (seg–sex) no período 24 → 23</div>
                   </div>
                   <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center">
                     <Target size={24} className="text-blue-600 dark:text-blue-300" />
@@ -1159,12 +1220,11 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
             <CardHeader>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="font-semibold text-slate-900 dark:text-slate-100">
-                  Desempenho de Colaboradores —{' '}
-                  {new Date(`${rangeInicio}T00:00:00`).toLocaleDateString('pt-PT', { month: 'long', year: 'numeric' })}
+                  Desempenho de Colaboradores — <span className="text-slate-500 dark:text-slate-400">{periodoLabel}</span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Mês</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Período</span>
                   <Input
                     type="month"
                     value={periodo}
@@ -1225,7 +1285,9 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
                                 )}
                               </div>
 
-                              <Badge variant={atingiuMeta ? 'success' : proximo ? 'warning' : 'default'}>{pct.toFixed(0)}% da meta</Badge>
+                              <Badge variant={atingiuMeta ? 'success' : proximo ? 'warning' : 'default'}>
+                                {pct.toFixed(0)}% da meta
+                              </Badge>
                             </div>
 
                             <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -1263,7 +1325,7 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
                               </div>
 
                               <div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400">Meta (mês)</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">Meta (período)</div>
                                 <div className="flex items-center gap-2">
                                   <Input
                                     type="number"
@@ -1317,6 +1379,17 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
           </CardHeader>
 
           <CardContent className="space-y-6">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/35">
+              <div className="text-sm text-slate-700 dark:text-slate-200">
+                Período ativo: <span className="font-semibold">{periodoLabel}</span>
+              </div>
+              {selectedDateOutOfPeriodo && (
+                <div className="mt-2 text-xs text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 rounded-lg p-2">
+                  A data selecionada está fora do período. Ajuste para uma data entre <strong>{rangeInicio}</strong> e <strong>{rangeFim}</strong>.
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Obra *</label>
@@ -1338,6 +1411,8 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
                   className="dark:bg-slate-950/50 dark:border-slate-800 dark:text-slate-100"
+                  min={rangeInicio}
+                  max={rangeFim}
                 />
                 <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatWeekdayLabel(selectedDate)}</div>
 
@@ -1526,7 +1601,6 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
 
                             <Badge variant={colab.status === 'ativo' ? 'success' : 'default'}>{colab.status}</Badge>
 
-                            {/* Individual: sempre disponível (Marcar/Editar) */}
                             <Button
                               variant="secondary"
                               size="sm"
@@ -1564,11 +1638,10 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
             <Button
               className="w-full"
               onClick={handleRegistrarPresenca}
-              disabled={!selectedObra || selectedColaboradores.size === 0 || selectedDateIsSunday}
+              disabled={!selectedObra || selectedColaboradores.size === 0 || selectedDateIsSunday || selectedDateOutOfPeriodo}
             >
               <Plus size={18} className="mr-2" />
-              {selectedColaboradores.size > 0 &&
-              Array.from(selectedColaboradores).some((id) => !!existentesByColab[id])
+              {selectedColaboradores.size > 0 && Array.from(selectedColaboradores).some((id) => !!existentesByColab[id])
                 ? `Atualizar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`
                 : `Registrar ${tipoRegistro === 'falta' ? 'Falta' : 'Presença'}`}
             </Button>
@@ -1628,7 +1701,7 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
               <div className="flex items-center justify-center py-12">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A] dark:border-[#66A7E6]" />
               </div>
-            ) : historicoFiltrado.length === 0 ? (
+            ) : historico.length === 0 ? (
               <div className="text-center py-12">
                 <Calendar size={48} className="mx-auto text-slate-300 dark:text-slate-700 mb-3" />
                 <p className="text-slate-500 dark:text-slate-400">Nenhum registo encontrado</p>
@@ -1648,7 +1721,7 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
                   </thead>
 
                   <tbody>
-                    {historicoFiltrado.map((reg) => (
+                    {historico.map((reg) => (
                       <tr
                         key={reg.id}
                         className="border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800/50 dark:hover:bg-slate-950/35"
@@ -1690,7 +1763,11 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
       {/* Modal Editar/Marcar Registo */}
       <SimpleModal
         open={editOpen}
-        title={editColab ? `${existentesByColab[editColab.id] ? 'Editar registo' : 'Marcar registo'} — ${editColab.nome_completo}` : 'Registo'}
+        title={
+          editColab
+            ? `${existentesByColab[editColab.id] ? 'Editar registo' : 'Marcar registo'} — ${editColab.nome_completo}`
+            : 'Registo'
+        }
         onClose={() => {
           if (editSaving) return;
           setEditOpen(false);
@@ -1713,14 +1790,17 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
             <Button
               variant="secondary"
               onClick={handleClearEdit}
-              disabled={editSaving || !editColab || !existentesByColab[editColab.id]}
+              disabled={editSaving || !editColab || !existentesByColab[editColab.id] || selectedDateOutOfPeriodo}
               className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
             >
               <Trash2 size={16} className="mr-2" />
               Remover do dia
             </Button>
 
-            <Button onClick={handleSaveEdit} disabled={editSaving || !editColab || selectedDateIsSunday || !selectedObra}>
+            <Button
+              onClick={handleSaveEdit}
+              disabled={editSaving || !editColab || selectedDateIsSunday || !selectedObra || selectedDateOutOfPeriodo}
+            >
               {editSaving ? 'Salvando...' : 'Salvar'}
             </Button>
           </>
@@ -1730,6 +1810,16 @@ query = query.gte('data', primeiroDia).lt('data', nextMonth);
           <div className="text-sm text-slate-500 dark:text-slate-400">Selecione um colaborador.</div>
         ) : (
           <div className="space-y-5">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
+              <div className="text-xs text-slate-500 dark:text-slate-400">Período ativo</div>
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{periodoLabel}</div>
+              {selectedDateOutOfPeriodo && (
+                <div className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+                  Esta data está fora do período. Ajuste a data no ecrã “Registrar”.
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mb-1">Obra</div>
