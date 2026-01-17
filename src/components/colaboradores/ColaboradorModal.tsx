@@ -1,3 +1,4 @@
+// src/components/colaboradores/ColaboradorModal.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Input } from '../ui/Input';
@@ -134,11 +135,14 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
   const [loading, setLoading] = useState(false);
   const [fotoFile, setFotoFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [formData, setFormData] = useState<FormData>(emptyForm());
   const isEdit = Boolean(colaboradorId);
+
+  // ====== NIF duplicate (UX) ======
+  const [nifDupInfo, setNifDupInfo] = useState<{ id: string; nome: string } | null>(null);
+  const [checkingNif, setCheckingNif] = useState(false);
 
   const setField = useCallback(<K extends keyof FormData>(key: K, value: FormData[K]) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
@@ -155,6 +159,10 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
 
   useEffect(() => {
     if (!isOpen) return;
+
+    // reset avisos ao abrir
+    setNifDupInfo(null);
+    setCheckingNif(false);
 
     if (colaboradorId) {
       loadColaborador();
@@ -241,6 +249,52 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
     }
   };
 
+  const checkNifDuplicate = useCallback(
+    async (nifRaw: string) => {
+      const nif = onlyDigits(nifRaw);
+      if (nif.length !== 9) {
+        setNifDupInfo(null);
+        return;
+      }
+
+      setCheckingNif(true);
+      try {
+        let q = supabase.from('colaboradores').select('id, nome_completo').eq('nif', nif).limit(1);
+        if (colaboradorId) q = q.neq('id', colaboradorId);
+
+        const { data, error } = await q.maybeSingle();
+        if (error) throw error;
+
+        if (data?.id) setNifDupInfo({ id: data.id, nome: data.nome_completo || 'Sem nome' });
+        else setNifDupInfo(null);
+      } catch (e) {
+        console.error('CHECK_NIF_ERROR', e);
+        // não bloqueia por erro de rede
+        setNifDupInfo(null);
+      } finally {
+        setCheckingNif(false);
+      }
+    },
+    [colaboradorId]
+  );
+
+  // Debounce: verifica NIF quando tiver 9 dígitos
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const nif = onlyDigits(formData.nif);
+    if (nif.length !== 9) {
+      setNifDupInfo(null);
+      return;
+    }
+
+    const t = setTimeout(() => {
+      checkNifDuplicate(formData.nif);
+    }, 350);
+
+    return () => clearTimeout(t);
+  }, [formData.nif, isOpen, checkNifDuplicate]);
+
   const openFotoPicker = () => fileInputRef.current?.click();
 
   const handleFotoPicked = (file: File | null) => {
@@ -267,8 +321,8 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // ✅ Agora só estes 4 são obrigatórios:
-  // Nome + Data Nascimento + NIF (9) + NISS (11)
+  // Obrigatórios: Nome + Data Nascimento + NIF (9) + NISS (11)
+  // E: não permitir salvar se NIF duplicado ou em verificação
   const canSubmit = useMemo(() => {
     const nome = formData.nome_completo.trim();
     const nif = onlyDigits(formData.nif);
@@ -279,13 +333,18 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
     if (nif.length !== 9) return false;
     if (niss.length !== 11) return false;
 
+    if (checkingNif) return false;
+    if (nifDupInfo) return false;
+
     return true;
-  }, [formData]);
+  }, [formData, nifDupInfo, checkingNif]);
 
   const handleClose = useCallback(() => {
     setFormData(emptyForm());
     setFotoFile(null);
     setPreviewUrl(null);
+    setNifDupInfo(null);
+    setCheckingNif(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
     onClose();
   }, [onClose]);
@@ -295,7 +354,13 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
     if (loading) return;
 
     if (!canSubmit) {
-      toast.error('Preencha Nome, Data de Nascimento, NIF e NISS corretamente.');
+      if (nifDupInfo) {
+        toast.error(`Este NIF já está registado em: ${nifDupInfo.nome}`);
+      } else if (checkingNif) {
+        toast.error('A verificar NIF… aguarde um instante.');
+      } else {
+        toast.error('Preencha Nome, Data de Nascimento, NIF e NISS corretamente.');
+      }
       return;
     }
 
@@ -305,6 +370,7 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
       let fotoUrl = formData.foto_url;
 
       if (fotoFile) {
+        // Mantém o teu helper. Se ele ainda der 409 por path, ajusta o helper para upsert/unique name.
         const { url, error: uploadError } = await uploadFile('avatars-colaboradores', 'colaboradores', fotoFile);
         if (uploadError) {
           console.error(uploadError);
@@ -323,13 +389,30 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
       const ibanNorm = normalizeIban(formData.iban);
       const codigoFunc = (formData.codigo_funcionario || '').trim();
 
+      const nifDigits = onlyDigits(formData.nif);
+
+      // Segurança extra (anti-corrida): valida NIF duplicado no submit
+      {
+        let q = supabase.from('colaboradores').select('id, nome_completo').eq('nif', nifDigits).limit(1);
+        if (colaboradorId) q = q.neq('id', colaboradorId);
+
+        const { data: dup, error: dupErr } = await q.maybeSingle();
+        if (dupErr) throw dupErr;
+
+        if (dup?.id) {
+          toast.error(`Este NIF já está registado em: ${dup.nome_completo || 'Sem nome'}`);
+          setLoading(false);
+          return;
+        }
+      }
+
       const colaboradorData = {
         foto_url: fotoUrl,
 
-        // Obrigatórios (pelo teu pedido)
+        // Obrigatórios
         nome_completo: nomeCompletoFinal,
         data_nascimento: formData.data_nascimento,
-        nif: onlyDigits(formData.nif),
+        nif: nifDigits,
         niss: onlyDigits(formData.niss),
 
         // Opcionais
@@ -348,7 +431,13 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
       };
 
       if (colaboradorId) {
-        const { error } = await supabase.from('colaboradores').update(colaboradorData).eq('id', colaboradorId);
+        const { error } = await supabase
+          .from('colaboradores')
+          .update(colaboradorData)
+          .eq('id', colaboradorId)
+          .select('id')
+          .single();
+
         if (error) throw error;
 
         toast.success('Colaborador atualizado com sucesso');
@@ -362,7 +451,12 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
           );
         }
       } else {
-        const { error } = await supabase.from('colaboradores').insert([colaboradorData]);
+        const { error } = await supabase
+          .from('colaboradores')
+          .insert([colaboradorData])
+          .select('id')
+          .single();
+
         if (error) throw error;
 
         toast.success('Colaborador criado com sucesso');
@@ -380,8 +474,23 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
       onSuccess();
       handleClose();
     } catch (error: any) {
-      console.error(error);
-      toast.error(error?.message || 'Erro ao salvar colaborador');
+      const msg = String(error?.message || '');
+      const code = error?.code;
+
+      if (code === '23505' && msg.includes('colaboradores_nif_unique')) {
+        toast.error('Este NIF já está registado noutro colaborador.');
+      } else {
+        toast.error(error?.message || error?.details || 'Erro ao salvar colaborador');
+      }
+
+      console.error('SAVE_COLAB_ERROR', {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+        hint: error?.hint,
+        status: error?.status,
+        raw: error,
+      });
     } finally {
       setLoading(false);
     }
@@ -504,14 +613,27 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
               required
             />
 
-            <Input
-              label="NIF"
-              value={formData.nif}
-              onChange={(e) => setField('nif', onlyDigits(e.target.value).slice(0, 9))}
-              required
-              placeholder="123456789"
-              maxLength={9}
-            />
+            {/* NIF com aviso inline */}
+            <div className="space-y-1">
+              <Input
+                label="NIF"
+                value={formData.nif}
+                onChange={(e) => setField('nif', onlyDigits(e.target.value).slice(0, 9))}
+                required
+                placeholder="123456789"
+                maxLength={9}
+              />
+
+              {checkingNif && (
+                <div className="text-xs text-neutral-500 dark:text-neutral-400">A verificar NIF…</div>
+              )}
+
+              {nifDupInfo && (
+                <div className="text-xs font-medium text-red-600 dark:text-red-400">
+                  Este NIF já está registado em: {nifDupInfo.nome}
+                </div>
+              )}
+            </div>
 
             <Input
               label="NISS (Segurança Social)"
