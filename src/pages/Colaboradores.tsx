@@ -15,6 +15,8 @@ import {
   Clock,
   FileWarning,
   TrendingUp,
+  Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { ColaboradorModal } from '../components/colaboradores/ColaboradorModal';
@@ -171,15 +173,22 @@ function IconActionButton({
   title,
   onClick,
   children,
+  danger,
 }: {
   title: string;
   onClick: () => void;
   children: React.ReactNode;
+  danger?: boolean;
 }) {
   return (
     <button
-      className="p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
-                 dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60"
+      className={
+        danger
+          ? `p-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition
+             dark:border-red-500/25 dark:text-red-200 dark:hover:bg-red-500/10`
+          : `p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
+             dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60`
+      }
       onClick={onClick}
       title={title}
       type="button"
@@ -215,6 +224,67 @@ function DocChip({
   );
 }
 
+type DeleteDeps = { presencasCount: number; docsCount: number };
+type DeleteState =
+  | { open: false }
+  | {
+      open: true;
+      colaborador: Colaborador;
+      checking: boolean;
+      deps: DeleteDeps | null;
+      deleting: boolean;
+      error: string | null;
+    };
+
+function Segmented({
+  value,
+  onChange,
+  items,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  items: { value: string; label: string; badge?: string }[];
+}) {
+  return (
+    <div
+      className="inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm
+                 dark:border-slate-800/70 dark:bg-slate-950/30 dark:shadow-black/20"
+    >
+      {items.map((it) => {
+        const active = it.value === value;
+        return (
+          <button
+            key={it.value}
+            type="button"
+            onClick={() => onChange(it.value)}
+            className={
+              active
+                ? `px-3 py-2 rounded-xl text-sm font-semibold bg-[#0B4F8A] text-white`
+                : `px-3 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50
+                   dark:text-slate-200 dark:hover:bg-slate-900/50`
+            }
+          >
+            <span className="inline-flex items-center gap-2">
+              {it.label}
+              {it.badge ? (
+                <span
+                  className={
+                    active
+                      ? 'text-white/90 text-xs font-bold tabular-nums'
+                      : 'text-slate-500 dark:text-slate-400 text-xs font-bold tabular-nums'
+                  }
+                >
+                  {it.badge}
+                </span>
+              ) : null}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function Colaboradores({
   onOpenDocumentosColaborador,
 }: {
@@ -226,13 +296,15 @@ export function Colaboradores({
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'todos' | 'ativo' | 'inativo' | 'ferias' | 'baixa'>('todos');
+  const [viewMode, setViewMode] = useState<'ativos' | 'baixa'>('ativos'); // ✅ por padrão só ativos
   const [cargoFilter, setCargoFilter] = useState<string>('todos');
   const [sortKey, setSortKey] = useState<'nome' | 'horas7d' | 'docs' | 'valor'>('nome');
 
   const [selected, setSelected] = useState<Colaborador | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [deleteState, setDeleteState] = useState<DeleteState>({ open: false });
 
   useEffect(() => {
     loadAll();
@@ -292,7 +364,6 @@ export function Colaboradores({
 
         if (!docsAgg[id]) docsAgg[id] = { vencidos: 0, aVencer30: 0 };
 
-        // Comparações em "startOfDay"
         if (dv < hoje) docsAgg[id].vencidos += 1;
         else if (dv >= hoje && dv <= em30) docsAgg[id].aVencer30 += 1;
       }
@@ -345,6 +416,52 @@ export function Colaboradores({
     }
   };
 
+  const openProfile = (c: Colaborador) => setSelected(c);
+
+  const openModal = (colaboradorId?: string) => {
+    setEditingId(colaboradorId || null);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setEditingId(null);
+  };
+
+  const handleModalSuccess = () => {
+    loadAll();
+    closeModal();
+  };
+
+  // ✅ contagens para separador Ativos / Baixa
+  const counts = useMemo(() => {
+    const total = colaboradores.length;
+    const ativos = colaboradores.filter((c) => normStatus(c.status) === 'ativo').length;
+    const baixa = colaboradores.filter((c) => normStatus(c.status) === 'baixa').length;
+    return { total, ativos, baixa };
+  }, [colaboradores]);
+
+  // ✅ KPIs alinhados: horas/alertas calculados sobre ATIVOS (página “normal”)
+  const kpis = useMemo(() => {
+    const ativosIds = new Set(colaboradores.filter((c) => normStatus(c.status) === 'ativo').map((c) => c.id));
+    const alertasDocsAtivos = Object.entries(metricsById).reduce((acc, [id, m]) => {
+      if (!ativosIds.has(id)) return acc;
+      return acc + (m.docsVencidos + m.docsAVencer30);
+    }, 0);
+    const horas7dTotalAtivos = Object.entries(metricsById).reduce((acc, [id, m]) => {
+      if (!ativosIds.has(id)) return acc;
+      return acc + (m.horas7d || 0);
+    }, 0);
+
+    return {
+      total: counts.total,
+      ativos: counts.ativos,
+      baixa: counts.baixa,
+      alertasDocsAtivos,
+      horas7dTotalAtivos: safeHours(horas7dTotalAtivos),
+    };
+  }, [colaboradores, metricsById, counts]);
+
   const cargosOptions = useMemo(() => {
     const set = new Set<string>();
     colaboradores.forEach((c) => {
@@ -357,16 +474,14 @@ export function Colaboradores({
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
 
+    // ✅ viewMode controla a listagem principal
+    const statusTarget = viewMode === 'ativos' ? 'ativo' : 'baixa';
+
     let rows = colaboradores.filter((c) => {
       const nomeOk = !s || c.nome_completo.toLowerCase().includes(s);
 
       const st = normStatus(c.status);
-      const statusOk =
-        statusFilter === 'todos'
-          ? true
-          : statusFilter === 'ferias'
-            ? st === 'ferias'
-            : st === statusFilter;
+      const statusOk = st === statusTarget;
 
       const cargoOk = cargoFilter === 'todos' ? true : (c.categoria || '-') === cargoFilter;
       return nomeOk && statusOk && cargoOk;
@@ -388,31 +503,95 @@ export function Colaboradores({
     });
 
     return rows;
-  }, [colaboradores, search, statusFilter, cargoFilter, sortKey, metricsById]);
+  }, [colaboradores, search, cargoFilter, sortKey, metricsById, viewMode]);
 
-  const kpis = useMemo(() => {
-    const total = colaboradores.length;
-    const ativos = colaboradores.filter((c) => normStatus(c.status) === 'ativo').length;
-    const alertasDocs = Object.values(metricsById).reduce((acc, m) => acc + (m.docsVencidos + m.docsAVencer30), 0);
-    const horas7dTotal = Object.values(metricsById).reduce((acc, m) => acc + (m.horas7d || 0), 0);
-    return { total, ativos, alertasDocs, horas7dTotal: safeHours(horas7dTotal) };
-  }, [colaboradores, metricsById]);
+  // ---------- DELETE (seguro) ----------
+  const getDeleteDependencies = async (colaboradorId: string): Promise<DeleteDeps> => {
+    // Se não existir coluna "id" nestas tabelas, ajusta para uma coluna existente.
+    const [pres, docs] = await Promise.all([
+      supabase
+        .from('presencas_dia')
+        .select('colaborador_id', { count: 'exact', head: true })
+        .eq('colaborador_id', colaboradorId),
+      supabase
+        .from('documentos')
+        .select('entidade_id', { count: 'exact', head: true })
+        .eq('entidade_tipo', 'colaborador')
+        .eq('entidade_id', colaboradorId),
+    ]);
 
-  const openProfile = (c: Colaborador) => setSelected(c);
+    if (pres.error) throw pres.error;
+    if (docs.error) throw docs.error;
 
-  const openModal = (colaboradorId?: string) => {
-    setEditingId(colaboradorId || null);
-    setModalOpen(true);
+    return {
+      presencasCount: pres.count || 0,
+      docsCount: docs.count || 0,
+    };
   };
 
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditingId(null);
+  const requestDelete = async (c: Colaborador) => {
+    setDeleteState({ open: true, colaborador: c, checking: true, deps: null, deleting: false, error: null });
+
+    try {
+      const deps = await getDeleteDependencies(c.id);
+      setDeleteState({ open: true, colaborador: c, checking: false, deps, deleting: false, error: null });
+    } catch (e: any) {
+      console.error(e);
+      setDeleteState({
+        open: true,
+        colaborador: c,
+        checking: false,
+        deps: null,
+        deleting: false,
+        error: e?.message || 'Falha ao verificar dependências',
+      });
+    }
   };
 
-  const handleModalSuccess = () => {
-    loadAll();
-    closeModal();
+  const closeDelete = () => setDeleteState({ open: false });
+
+  const markAsBaixa = async (c: Colaborador) => {
+    // alternativa segura quando não dá para apagar (ou quando queres apenas “arquivar”)
+    const { error } = await supabase.from('colaboradores').update({ status: 'Baixa' }).eq('id', c.id);
+    if (error) {
+      setDeleteState((s) =>
+        s.open
+          ? { ...s, error: error.message }
+          : s,
+      );
+      return;
+    }
+    if (selected?.id === c.id) setSelected(null);
+    closeDelete();
+    await loadAll();
+    setViewMode('ativos');
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteState.open) return;
+    const c = deleteState.colaborador;
+
+    // Se tiver dependências, não apaga por segurança (evita FK quebrar, histórico perdido, etc.)
+    if (deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0)) {
+      setDeleteState((s) =>
+        s.open
+          ? { ...s, error: 'Este colaborador tem histórico (presenças/documentos). Para manter integridade, use “Marcar como Baixa”.' }
+          : s,
+      );
+      return;
+    }
+
+    setDeleteState((s) => (s.open ? { ...s, deleting: true, error: null } : s));
+    const { error } = await supabase.from('colaboradores').delete().eq('id', c.id);
+
+    if (error) {
+      setDeleteState((s) => (s.open ? { ...s, deleting: false, error: error.message } : s));
+      return;
+    }
+
+    if (selected?.id === c.id) setSelected(null);
+    closeDelete();
+    await loadAll();
   };
 
   if (loading) {
@@ -457,76 +636,82 @@ export function Colaboradores({
 
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Alertas</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.alertasDocs}</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Documentos (venc./a vencer)</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.alertasDocsAtivos}</div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Docs (ativos) venc./a vencer</div>
         </Card>
 
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Horas (7d)</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.horas7dTotal}h</div>
-          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Total equipa (últimos 7 dias)</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpis.horas7dTotalAtivos}h</div>
+          <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Total equipa (ativos, 7 dias)</div>
         </Card>
       </div>
 
       <Card className="p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
         {/* Toolbar */}
         <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
-          <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-            <div className="relative w-full sm:w-[360px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
-              <input
-                type="text"
-                placeholder="Pesquisar colaboradores…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                           placeholder:text-slate-400
-                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
-                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
-                           dark:focus:ring-[#66A7E6]/25"
+          <div className="flex flex-col gap-3">
+            {/* ✅ Toggle Ativos / Baixa */}
+            <div className="flex flex-wrap items-center gap-3">
+              <Segmented
+                value={viewMode}
+                onChange={(v) => setViewMode(v as any)}
+                items={[
+                  { value: 'ativos', label: 'Ativos', badge: String(kpis.ativos) },
+                  { value: 'baixa', label: 'Baixa', badge: String(kpis.baixa) },
+                ]}
               />
+
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {viewMode === 'ativos'
+                  ? 'A página mostra apenas colaboradores Ativos.'
+                  : 'A lista “Baixa” é separada (não aparece na página principal).'}
+              </div>
             </div>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="w-full sm:w-[160px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                         focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                         dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
-            >
-              <option value="todos">Todos</option>
-              <option value="ativo">Ativo</option>
-              <option value="inativo">Inativo</option>
-              <option value="ferias">Férias</option>
-              <option value="baixa">Baixa</option>
-            </select>
+            <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+              <div className="relative w-full sm:w-[360px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={18} />
+                <input
+                  type="text"
+                  placeholder={viewMode === 'ativos' ? 'Pesquisar ativos…' : 'Pesquisar em baixa…'}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
+                             placeholder:text-slate-400
+                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                             dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
+                             dark:focus:ring-[#66A7E6]/25"
+                />
+              </div>
 
-            <select
-              value={cargoFilter}
-              onChange={(e) => setCargoFilter(e.target.value)}
-              className="w-full sm:w-[220px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                         focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                         dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
-            >
-              {cargosOptions.map((c) => (
-                <option key={c} value={c}>
-                  {c === 'todos' ? 'Todos os cargos' : c}
-                </option>
-              ))}
-            </select>
+              <select
+                value={cargoFilter}
+                onChange={(e) => setCargoFilter(e.target.value)}
+                className="w-full sm:w-[220px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
+                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
+                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
+              >
+                {cargosOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c === 'todos' ? 'Todos os cargos' : c}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as any)}
-              className="w-full sm:w-[190px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                         focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                         dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
-            >
-              <option value="nome">Ordenar: Nome</option>
-              <option value="horas7d">Ordenar: Horas (7d)</option>
-              <option value="docs">Ordenar: Alertas docs</option>
-              <option value="valor">Ordenar: Valor/hora</option>
-            </select>
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as any)}
+                className="w-full sm:w-[190px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
+                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
+                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
+              >
+                <option value="nome">Ordenar: Nome</option>
+                <option value="horas7d">Ordenar: Horas (7d)</option>
+                <option value="docs">Ordenar: Alertas docs</option>
+                <option value="valor">Ordenar: Valor/hora</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 justify-end">
@@ -651,6 +836,9 @@ export function Colaboradores({
                         <IconActionButton title="Editar" onClick={() => openModal(c.id)}>
                           <Edit size={16} />
                         </IconActionButton>
+                        <IconActionButton title="Apagar" onClick={() => requestDelete(c)} danger>
+                          <Trash2 size={16} />
+                        </IconActionButton>
                       </div>
                     </div>
 
@@ -670,7 +858,9 @@ export function Colaboradores({
           })}
 
           {filtered.length === 0 && (
-            <div className="text-center py-12 text-slate-500 dark:text-slate-400">Nenhum colaborador encontrado</div>
+            <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+              {viewMode === 'ativos' ? 'Nenhum colaborador ativo encontrado' : 'Nenhum colaborador em baixa encontrado'}
+            </div>
           )}
         </div>
 
@@ -680,8 +870,7 @@ export function Colaboradores({
             <table className="w-full table-fixed">
               <thead className="bg-white dark:bg-slate-950/30">
                 <tr className="border-b border-slate-200 dark:border-slate-800/70">
-                  {/* Ajuste de widths para somar ~100% */}
-                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[36%]">
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[34%]">
                     Colaborador
                   </th>
 
@@ -709,7 +898,7 @@ export function Colaboradores({
                     Status
                   </th>
 
-                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[10%]">
+                  <th className="text-left py-3 px-4 font-semibold text-xs uppercase tracking-wider text-slate-600 dark:text-slate-300 w-[12%]">
                     Ações
                   </th>
                 </tr>
@@ -815,6 +1004,9 @@ export function Colaboradores({
                           <IconActionButton title="Editar" onClick={() => openModal(c.id)}>
                             <Edit size={16} />
                           </IconActionButton>
+                          <IconActionButton title="Apagar" onClick={() => requestDelete(c)} danger>
+                            <Trash2 size={16} />
+                          </IconActionButton>
                         </div>
                       </td>
                     </tr>
@@ -824,7 +1016,9 @@ export function Colaboradores({
             </table>
 
             {filtered.length === 0 && (
-              <div className="text-center py-12 text-slate-500 dark:text-slate-400">Nenhum colaborador encontrado</div>
+              <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+                {viewMode === 'ativos' ? 'Nenhum colaborador ativo encontrado' : 'Nenhum colaborador em baixa encontrado'}
+              </div>
             )}
           </div>
         </div>
@@ -979,11 +1173,135 @@ export function Colaboradores({
                 >
                   Ver documentos
                 </Button>
+
+                <Button
+                  variant="secondary"
+                  className="flex-1 border-red-200 text-red-700 hover:bg-red-50
+                             dark:border-red-500/25 dark:text-red-200 dark:hover:bg-red-500/10"
+                  onClick={() => requestDelete(selected)}
+                >
+                  <Trash2 size={16} className="mr-2" />
+                  Apagar
+                </Button>
               </div>
 
               <div className="text-xs text-slate-400 dark:text-slate-500">
                 Observação: esta tela calcula horas/documentos a partir de <code>presencas_dia</code> e{' '}
                 <code>documentos</code> (entidade_tipo='colaborador').
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Modal Apagar */}
+      {deleteState.open && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-[60]" onClick={closeDelete} aria-hidden="true" />
+          <div className="fixed inset-x-0 top-10 z-[70] flex justify-center px-4">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800/70 dark:bg-slate-950">
+              <div className="p-5 border-b border-slate-200 dark:border-slate-800/70 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    <AlertTriangle size={18} className="text-red-600 dark:text-red-400" />
+                    Apagar colaborador
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-300 truncate">
+                    {deleteState.colaborador.nome_completo}
+                  </div>
+                </div>
+
+                <button
+                  className="h-10 w-10 rounded-xl border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50
+                             dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-900/60"
+                  onClick={closeDelete}
+                  aria-label="Fechar"
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {deleteState.checking ? (
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
+                    A verificar histórico (presenças / documentos)…
+                  </div>
+                ) : (
+                  <>
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800/70 dark:bg-slate-900/40">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Validação de segurança</div>
+                      <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                        {deleteState.deps ? (
+                          <>
+                            Presenças: <span className="font-semibold tabular-nums">{deleteState.deps.presencasCount}</span>
+                            {' · '}
+                            Documentos: <span className="font-semibold tabular-nums">{deleteState.deps.docsCount}</span>
+                          </>
+                        ) : (
+                          'Sem dados de dependências (não foi possível verificar).'
+                        )}
+                      </div>
+
+                      {deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0) ? (
+                        <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+                          Este colaborador tem histórico. Em vez de apagar (o que pode quebrar relatórios e histórico),
+                          use <span className="font-semibold">Marcar como Baixa</span> para esconder da página principal.
+                        </div>
+                      ) : (
+                        <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+                          Sem histórico encontrado. O apagamento será definitivo.
+                        </div>
+                      )}
+                    </div>
+
+                    {deleteState.error && (
+                      <div className="text-sm text-red-700 dark:text-red-200 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-500/25 dark:bg-red-500/10">
+                        {deleteState.error}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+                      <Button
+                        variant="secondary"
+                        className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                        onClick={closeDelete}
+                        disabled={deleteState.deleting}
+                      >
+                        Cancelar
+                      </Button>
+
+                      <Button
+                        variant="secondary"
+                        className="border-amber-200 text-amber-900 hover:bg-amber-50
+                                   dark:border-amber-500/25 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                        onClick={() => markAsBaixa(deleteState.colaborador)}
+                        disabled={deleteState.deleting}
+                      >
+                        Marcar como Baixa
+                      </Button>
+
+                      <Button
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                        onClick={confirmDelete}
+                        disabled={
+                          deleteState.deleting ||
+                          deleteState.checking ||
+                          !!(deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0))
+                        }
+                      >
+                        {deleteState.deleting ? 'A apagar…' : 'Apagar definitivamente'}
+                      </Button>
+                    </div>
+
+                    {deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0) ? (
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
+                        Nota: para permitir apagar mesmo com histórico, teria de existir “ON DELETE CASCADE” nas FKs ou uma rotina de limpeza
+                        que apague também presenças/documentos relacionados (não recomendo para histórico operacional).
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </div>
             </div>
           </div>
