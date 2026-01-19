@@ -20,13 +20,19 @@ import {
   Info,
   RotateCcw,
   Undo2,
+  Smartphone,
+  Building2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { toast } from '../lib/toast';
 import { CargoModal } from '../components/configuracoes/CargoModal';
 import { FeriadoModal } from '../components/configuracoes/FeriadoModal';
 
-type TabKey = 'regras' | 'cargos' | 'feriados' | 'permissoes';
+// ✅ novos tabs separados (mais fácil de operar)
+import { PermissoesPlataformaTab } from '../components/configuracoes/permissoes/PermissoesPlataformaTab';
+import { PermissoesAppTab } from '../components/configuracoes/permissoes/PermissoesAppTab';
+
+type TabKey = 'regras' | 'cargos' | 'feriados' | 'plataforma' | 'app';
 
 // OBS: no Supabase, colunas NUMERIC geralmente chegam como string no JS.
 type Cargo = {
@@ -521,9 +527,8 @@ export function Configuracoes() {
                 <SettingsIcon size={18} className="text-slate-700 dark:text-slate-200" />
               </div>
               <div>
-                
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Regras do sistema, cargos, feriados e políticas operacionais.
+                  Regras do sistema, cargos, feriados e gestão de acessos (web/app).
                 </p>
               </div>
             </div>
@@ -580,8 +585,8 @@ export function Configuracoes() {
                   !cfgIsValid
                     ? 'Config inválida (timezone e horas HH:MM)'
                     : !cfgDirty
-                      ? 'Sem alterações para guardar'
-                      : 'Guardar alterações'
+                    ? 'Sem alterações para guardar'
+                    : 'Guardar alterações'
                 }
               >
                 {savingCfg ? 'A guardar…' : 'Guardar alterações'}
@@ -606,7 +611,9 @@ export function Configuracoes() {
           <TabPill id="regras" label="Regras do Sistema" icon={SlidersHorizontal} />
           <TabPill id="cargos" label="Cargos & Valores" icon={Target} count={cargosStats.total} />
           <TabPill id="feriados" label="Feriados" icon={CalendarDays} count={feriadoCounts.totalFiltro} />
-          <TabPill id="permissoes" label="Permissões" icon={Shield} />
+          {/* ✅ troca “Permissões” por dois botões */}
+          <TabPill id="plataforma" label="Plataforma" icon={Shield} />
+          <TabPill id="app" label="App" icon={Smartphone} />
         </div>
       </Card>
 
@@ -649,9 +656,7 @@ export function Configuracoes() {
                   onChange={(e) => setCfgField('timezone', e.target.value)}
                   placeholder="Europe/Lisbon"
                 />
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Evita divergências em datas/horas.
-                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Evita divergências em datas/horas.</div>
               </div>
             </div>
 
@@ -746,9 +751,7 @@ export function Configuracoes() {
                   value={String(cfg.tolerancia_minutos)}
                   onChange={(e) => setCfgField('tolerancia_minutos', Math.max(0, toNumber(e.target.value, 10)))}
                 />
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Atrasos até este valor podem ser ignorados.
-                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Atrasos até este valor podem ser ignorados.</div>
               </div>
 
               <div>
@@ -760,9 +763,7 @@ export function Configuracoes() {
                   value={String(cfg.arredondamento_minutos)}
                   onChange={(e) => setCfgField('arredondamento_minutos', Math.max(0, toNumber(e.target.value, 15)))}
                 />
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Ex.: 15 min para padronizar apuramento.
-                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Ex.: 15 min para padronizar apuramento.</div>
               </div>
             </div>
 
@@ -1147,82 +1148,11 @@ export function Configuracoes() {
         </Card>
       )}
 
-      {/* TAB: Permissões */}
-      {tab === 'permissoes' && (
-        <Card className={`p-5 ${cardBase}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Permissões e Auditoria</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Controle de quem pode alterar presenças/folha e rastreio de alterações.
-              </div>
-            </div>
-            <Badge variant="warning">Recomendado</Badge>
-          </div>
+      {/* ✅ TAB: Plataforma (roles) */}
+      {tab === 'plataforma' && <PermissoesPlataformaTab />}
 
-          <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <div className="flex items-center gap-2">
-                <Shield size={16} className="text-slate-700 dark:text-slate-200" />
-                <div className="font-semibold text-slate-900 dark:text-slate-100">Ações críticas</div>
-              </div>
-
-              <div className="mt-3 space-y-3">
-                {[
-                  { title: 'Editar presença passada', desc: 'Permite corrigir registos anteriores (risco alto).' },
-                  { title: 'Fechar / Reabrir período', desc: 'Controla consistência entre presenças e folha.' },
-                  { title: 'Alterar valor/hora', desc: 'Impacta cálculo de pagamentos.' },
-                ].map((item) => (
-                  <div
-                    key={item.title}
-                    className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{item.title}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</div>
-                    </div>
-                    <Badge variant="default">Definir por role</Badge>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-                Implementação recomendada: roles (admin / operações / financeiro) + políticas por ação.
-              </div>
-            </div>
-
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <div className="flex items-center gap-2">
-                <FileWarning size={16} className="text-slate-700 dark:text-slate-200" />
-                <div className="font-semibold text-slate-900 dark:text-slate-100">Auditoria</div>
-              </div>
-
-              <div className="mt-3 space-y-3">
-                {[
-                  { title: 'Log obrigatório em presenças', desc: 'Quem alterou, quando, antes/depois.' },
-                  { title: 'Log obrigatório em folha', desc: 'Fechos, reaberturas e ajustes manuais.' },
-                  { title: 'Notas de alteração', desc: 'Exigir motivo ao editar presença/falta.' },
-                ].map((item) => (
-                  <div
-                    key={item.title}
-                    className="flex items-start justify-between gap-3 py-2 border-b border-slate-100 dark:border-slate-800 last:border-b-0"
-                  >
-                    <div>
-                      <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{item.title}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">{item.desc}</div>
-                    </div>
-                    <Badge variant="info">Boas práticas</Badge>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-                Se você quiser, eu desenho o modelo de tabelas (audit_log) e as ações mínimas para cobrir presenças e folha.
-              </div>
-            </div>
-          </div>
-        </Card>
-      )}
+      {/* ✅ TAB: App (acesso colaborador + encarregados) */}
+      {tab === 'app' && <PermissoesAppTab />}
 
       {/* Rodapé de ajuda */}
       <Card className={`p-5 ${cardBase}`}>
