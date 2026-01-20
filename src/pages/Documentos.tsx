@@ -38,6 +38,38 @@ export type DocumentosInitialSelection = {
   entidadeId: string;
   entidadeNome?: string | null;
 };
+// ===== Focus vindo do App.tsx via sessionStorage (documentos_focus) =====
+type DocsFocusPayload = {
+  tipo: 'colaborador' | 'empresa';
+  id: string;
+  nome?: string | null;
+};
+
+const DOCS_FOCUS_KEY = 'documentos_focus';
+
+function readDocsFocusFromSession(): DocumentosInitialSelection | null {
+  try {
+    const raw = sessionStorage.getItem(DOCS_FOCUS_KEY);
+    if (!raw) return null;
+
+    // IMPORTANTÍSSIMO: remove para não re-aplicar em visitas futuras
+    sessionStorage.removeItem(DOCS_FOCUS_KEY);
+
+    const parsed = JSON.parse(raw) as DocsFocusPayload;
+
+    if (!parsed?.id || !parsed?.tipo) return null;
+
+    return {
+      scope: parsed.tipo, // 'colaborador' | 'empresa'
+      entidadeId: String(parsed.id),
+      entidadeNome: parsed.nome ?? null,
+    };
+  } catch {
+    // se vier lixo, evita crash
+    sessionStorage.removeItem(DOCS_FOCUS_KEY);
+    return null;
+  }
+}
 
 interface Documento {
   id: string;
@@ -345,6 +377,14 @@ function severityRank(st: EntityDocStats) {
   if (st.a_vencer > 0) return 2;
   if (st.sem_validade > 0) return 3;
   return 4;
+}
+
+function pinSelectedFirst<T extends { id: string }>(rows: T[], selectedId: string) {
+  if (!selectedId) return rows;
+  const idx = rows.findIndex((r) => r.id === selectedId);
+  if (idx <= 0) return rows; // já está no topo ou não existe
+  const selected = rows[idx];
+  return [selected, ...rows.slice(0, idx), ...rows.slice(idx + 1)];
 }
 
 /** Modal simples para criar empresa (insert em `empresas`). */
@@ -1162,6 +1202,8 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
   const [selectedEntidadeId, setSelectedEntidadeId] = useState<string>('');
   const [selectedEntidadeNome, setSelectedEntidadeNome] = useState<string>('');
   const [entitySearch, setEntitySearch] = useState('');
+  // ✅ só pinar no topo quando vier do "Ver documentos" (pré-seleção)
+  const [pinSelectedToTop, setPinSelectedToTop] = useState(false);
 
   const [filter, setFilter] = useState<StatusFilter>('todos');
   const [search, setSearch] = useState('');
@@ -1179,6 +1221,29 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
 
   // CRÍTICO: pular reset 1x quando o scope mudou por navegação/pré-seleção
   const skipScopeResetRef = useRef(false);
+  // Resolve a seleção inicial:
+  // 1) se veio por prop (fluxo futuro/roteador)
+  // 2) senão, tenta sessionStorage (fluxo atual do teu App.tsx)
+  const [resolvedInitialSelection, setResolvedInitialSelection] =
+    useState<DocumentosInitialSelection | null>(initialSelection ?? null);
+
+  // Se a prop mudar (caso uses isso no futuro), respeita
+  useEffect(() => {
+    if (initialSelection?.entidadeId) {
+      setResolvedInitialSelection(initialSelection);
+    }
+  }, [initialSelection?.entidadeId, initialSelection?.entidadeNome, initialSelection?.scope]);
+
+  // No mount: se não veio por prop, tenta ler do sessionStorage
+  useEffect(() => {
+    if (initialSelection?.entidadeId) return;
+
+    const fromSession = readDocsFocusFromSession();
+    if (fromSession?.entidadeId) {
+      setResolvedInitialSelection(fromSession);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Modal criar empresa
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
@@ -1268,17 +1333,19 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
     setValidadeMes('');
 
     setSelectedDoc(null);
+        setPinSelectedToTop(false);
+
   }, [scope]);
 
-  // FIX: aplicar pré-seleção (Ver documentos)
+    // FIX: aplicar pré-seleção (Ver documentos) — suporta prop OU sessionStorage
   useEffect(() => {
-    if (!initialSelection?.entidadeId) return;
+    if (!resolvedInitialSelection?.entidadeId) return;
 
     skipScopeResetRef.current = true;
 
-    setScope(initialSelection.scope);
-    setSelectedEntidadeId(initialSelection.entidadeId);
-    setSelectedEntidadeNome(String(initialSelection.entidadeNome || ''));
+    setScope(resolvedInitialSelection.scope);
+    setSelectedEntidadeId(resolvedInitialSelection.entidadeId);
+    setSelectedEntidadeNome(String(resolvedInitialSelection.entidadeNome || ''));
 
     setEntitySearch('');
     setFilter('todos');
@@ -1286,7 +1353,14 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
     setTipoFilter('todos');
     setValidadeMes('');
     setSelectedDoc(null);
-  }, [initialSelection?.entidadeId, initialSelection?.entidadeNome, initialSelection?.scope]);
+        setPinSelectedToTop(true);
+
+  }, [
+    resolvedInitialSelection?.entidadeId,
+    resolvedInitialSelection?.entidadeNome,
+    resolvedInitialSelection?.scope,
+  ]);
+
 
   const docsByScope = useMemo(() => {
     if (scope === 'todos') return documentos;
@@ -1572,37 +1646,51 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
   }, [entitySearch, scope, colaboradores, empresas]);
 
   const sortedEntities = useMemo(() => {
-    if (scope === 'colaborador') {
-      const rows = [...(filteredEntities as ColaboradorRow[])];
-      rows.sort((a, b) => {
-        const sa = colabStats.get(a.id) || emptyStats();
-        const sb = colabStats.get(b.id) || emptyStats();
-        const ra = severityRank(sa);
-        const rb = severityRank(sb);
-        if (ra !== rb) return ra - rb;
-        return a.nome_completo.localeCompare(b.nome_completo);
-      });
-      return rows;
+  const searching = normalize(entitySearch).length > 0;
+
+  if (scope === 'colaborador') {
+    let rows = [...(filteredEntities as ColaboradorRow[])];
+
+    rows.sort((a, b) => {
+      const sa = colabStats.get(a.id) || emptyStats();
+      const sb = colabStats.get(b.id) || emptyStats();
+      const ra = severityRank(sa);
+      const rb = severityRank(sb);
+      if (ra !== rb) return ra - rb;
+      return a.nome_completo.localeCompare(b.nome_completo);
+    });
+
+    // ✅ Puxa o selecionado para o topo (só quando NÃO está a pesquisar)
+    if (!searching && pinSelectedToTop && selectedEntidadeId) {
+      rows = pinSelectedFirst(rows, selectedEntidadeId);
     }
+    return rows;
+  }
 
-    if (scope === 'empresa') {
-      const rows = [...(filteredEntities as EmpresaRow[])];
-      rows.sort((a, b) => {
-        const sa = empresaStats.get(a.id) || emptyStats();
-        const sb = empresaStats.get(b.id) || emptyStats();
-        const ra = severityRank(sa);
-        const rb = severityRank(sb);
-        if (ra !== rb) return ra - rb;
-        const an = String(a.nome || a.razao_social || a.id);
-        const bn = String(b.nome || b.razao_social || b.id);
-        return an.localeCompare(bn);
-      });
-      return rows;
+  if (scope === 'empresa') {
+    let rows = [...(filteredEntities as EmpresaRow[])];
+
+    rows.sort((a, b) => {
+      const sa = empresaStats.get(a.id) || emptyStats();
+      const sb = empresaStats.get(b.id) || emptyStats();
+      const ra = severityRank(sa);
+      const rb = severityRank(sb);
+      if (ra !== rb) return ra - rb;
+
+      const an = String(a.nome || a.razao_social || a.id);
+      const bn = String(b.nome || b.razao_social || b.id);
+      return an.localeCompare(bn);
+    });
+
+    // ✅ Puxa o selecionado para o topo (só quando NÃO está a pesquisar)
+    if (!searching && pinSelectedToTop && selectedEntidadeId) {
+      rows = pinSelectedFirst(rows, selectedEntidadeId);
     }
+    return rows;
+  }
 
-    return [];
-  }, [filteredEntities, scope, colabStats, empresaStats]);
-
+  return [];
+}, [filteredEntities, scope, colabStats, empresaStats, selectedEntidadeId, entitySearch, pinSelectedToTop]);
   const selectedLabel = useMemo(() => {
     if (scope === 'colaborador') {
       const c = colaboradores.find((x) => x.id === selectedEntidadeId);
@@ -1696,6 +1784,8 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
               {selectedEntidadeId && (
                 <button
                   onClick={() => {
+                      setPinSelectedToTop(false);
+
                     setSelectedEntidadeId('');
                     setSelectedEntidadeNome('');
                     setSelectedDoc(null);
@@ -1860,6 +1950,8 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                     <button
                       key={c.id}
                       onClick={() => {
+                          setPinSelectedToTop(false);
+
                         setSelectedEntidadeId(c.id);
                         setSelectedEntidadeNome(c.nome_completo);
 
@@ -1935,6 +2027,8 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
                     <button
                       key={e.id}
                       onClick={() => {
+                          setPinSelectedToTop(false);
+
                         setSelectedEntidadeId(e.id);
                         setSelectedEntidadeNome(label);
 
@@ -2755,6 +2849,7 @@ export function Documentos({ initialSelection }: { initialSelection?: Documentos
           setScope('empresa');
           setSelectedEntidadeId(id);
           setSelectedEntidadeNome(label);
+setPinSelectedToTop(true);
 
           setFilter('todos');
           setSearch('');

@@ -52,7 +52,10 @@ export function NotificationDropdown() {
   const loadNotifications = async () => {
     if (!user) return;
     setLoading(true);
-    const data = await getNotifications(user.id, 20);
+
+    // ✅ AQUI está o “fix”: dropdown só mostra NÃO LIDAS
+    const data = await getNotifications(user.id, 20, { onlyUnread: true });
+
     setNotifications(data);
     setLoading(false);
   };
@@ -71,6 +74,7 @@ export function NotificationDropdown() {
           filter: `user_id=eq.${user.id}`,
         },
         () => {
+          // sempre recarrega, mas como agora carrega só não lidas, não “volta” as lidas
           loadNotifications();
         }
       )
@@ -81,20 +85,35 @@ export function NotificationDropdown() {
     };
   };
 
-  // remove do dropdown imediatamente
+  // remove do dropdown imediatamente (optimistic)
   const handleMarkAsRead = async (notificationId: string) => {
-    await markAsRead(notificationId);
+    // ✅ some na hora
     setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+
+    const res = await markAsRead(notificationId);
+
+    // se falhar (RLS/erro), volta a sincronizar
+    if (!res.ok) {
+      await loadNotifications();
+    }
   };
 
-  // limpa o dropdown
+  // limpa o dropdown (optimistic)
   const handleMarkAllAsRead = async () => {
     if (!user) return;
-    await markAllAsRead(user.id);
+
+    // ✅ limpa na hora
     setNotifications([]);
+
+    const res = await markAllAsRead(user.id);
+
+    if (!res.ok) {
+      await loadNotifications();
+    }
   };
 
-  const unreadCount = notifications.filter((n) => !n.lida).length;
+  // ✅ como agora é só não lida, contador é o tamanho da lista
+  const unreadCount = notifications.length;
 
   const formatTime = (date: string) => {
     const d = new Date(date);
@@ -136,13 +155,10 @@ export function NotificationDropdown() {
       {isOpen && (
         <div
           className={[
-            // POSICIONAMENTO: no mobile vira “quase fullscreen”, no desktop fica dropdown normal
             "absolute right-0 mt-2 z-50 overflow-hidden rounded-2xl shadow-xl",
             "w-[calc(100vw-2rem)] sm:w-[420px]",
             "max-w-[420px] sm:max-w-none",
-            // garante que em telas muito pequenas não encoste nas bordas
             "mr-0 sm:mr-0",
-            // light/dark
             "bg-white border border-slate-200",
             "dark:bg-slate-900 dark:border-slate-800 dark:shadow-black/40",
           ].join(" ")}
@@ -201,7 +217,6 @@ export function NotificationDropdown() {
                 {notifications.map((notification) => {
                   const icon = getNotificationIcon(notification.tipo);
                   const colorClass = getNotificationColor(notification.tipo);
-                  const unreadBg = "bg-blue-50/30 dark:bg-[#0B4F8A]/10";
 
                   return (
                     <div
@@ -209,7 +224,8 @@ export function NotificationDropdown() {
                       className={[
                         "p-4 transition",
                         "hover:bg-slate-50 dark:hover:bg-slate-800/60",
-                        !notification.lida ? unreadBg : "",
+                        // como agora só tem não lida, pode manter destaque fixo
+                        "bg-blue-50/30 dark:bg-[#0B4F8A]/10",
                       ].join(" ")}
                     >
                       <div className="flex gap-3 min-w-0">
@@ -227,23 +243,20 @@ export function NotificationDropdown() {
                             <h4
                               className={[
                                 "text-sm font-semibold text-slate-900 dark:text-slate-100",
-                                !notification.lida ? "font-bold" : "",
                                 "min-w-0 break-words",
                               ].join(" ")}
                             >
                               {notification.titulo}
                             </h4>
 
-                            {!notification.lida && (
-                              <button
-                                onClick={() => handleMarkAsRead(notification.id)}
-                                className="p-1 rounded transition flex-shrink-0 hover:bg-slate-200 dark:hover:bg-slate-700"
-                                title="Marcar como lida"
-                                type="button"
-                              >
-                                <Check size={14} className="text-slate-600 dark:text-slate-200" />
-                              </button>
-                            )}
+                            <button
+                              onClick={() => handleMarkAsRead(notification.id)}
+                              className="p-1 rounded transition flex-shrink-0 hover:bg-slate-200 dark:hover:bg-slate-700"
+                              title="Marcar como lida"
+                              type="button"
+                            >
+                              <Check size={14} className="text-slate-600 dark:text-slate-200" />
+                            </button>
                           </div>
 
                           <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 line-clamp-2">

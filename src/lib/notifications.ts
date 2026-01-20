@@ -39,10 +39,6 @@ function logSbError(context: string, err: any) {
   console.error(`[NOTIF] ${context}:`, e);
 }
 
-/**
- * Cria notificação para o utilizador.
- * Retorna ok=false com detalhes completos se falhar (útil para debug de RLS/GRANT).
- */
 export async function createNotification(
   userId: string,
   tipo: string,
@@ -102,28 +98,27 @@ export async function markAllAsRead(userId: string): Promise<NotifOk | NotifErr>
   return { ok: true };
 }
 
-export async function getUnreadCount(userId: string): Promise<number> {
-  const { count, error } = await supabase
-    .from("notificacoes")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("lida", false);
+/**
+ * Dropdown “limpo”: por padrão retorna SOMENTE não lidas.
+ * Se quiser histórico: getNotifications(userId, 50, { onlyUnread: false })
+ */
+export async function getNotifications(
+  userId: string,
+  limit = 20,
+  opts?: { onlyUnread?: boolean }
+): Promise<Notification[]> {
+  const onlyUnread = opts?.onlyUnread ?? true;
 
-  if (error) {
-    logSbError("getUnreadCount failed", error);
-    return 0;
-  }
-
-  return count || 0;
-}
-
-export async function getNotifications(userId: string, limit = 20): Promise<Notification[]> {
-  const { data, error } = await supabase
+  let q = supabase
     .from("notificacoes")
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (onlyUnread) q = q.eq("lida", false);
+
+  const { data, error } = await q;
 
   if (error) {
     logSbError("getNotifications failed", error);
@@ -143,14 +138,9 @@ export function getNotificationIcon(tipo: string) {
     sucesso: "✅",
     info: "ℹ️",
   };
-
   return icons[tipo] || "ℹ️";
 }
 
-/**
- * Nota: Se quiser que os chips de cor fiquem bons no dark mode,
- * você pode adicionar classes dark: aqui.
- */
 export function getNotificationColor(tipo: string) {
   const colors: Record<string, string> = {
     obra: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-200",
@@ -162,5 +152,7 @@ export function getNotificationColor(tipo: string) {
     info: "bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-200",
   };
 
-  return colors[tipo] || "bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-200";
+  return (
+    colors[tipo] || "bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-200"
+  );
 }

@@ -16,17 +16,29 @@ import {
   FileText,
   Eye,
   Copy,
-  ExternalLink,
   AlertTriangle,
   X,
+  User,
+  FileSpreadsheet,
 } from 'lucide-react';
+
+import { ColaboradorProfilePanel } from '../components/colaboradores/ColaboradorProfilePanel';
 
 interface ColaboradorPagamento {
   id: string;
   nome_completo: string;
   foto_url: string | null;
+
+  email: string | null;
+  telefone: string | null;
+  status: string | null;
+  categoria: string | null;
+  data_entrada_plataforma: string | null;
+
   valor_hora_base: number | null;
   iban: string | null;
+  nif: string | null;
+  niss: string | null;
 
   horas_total: number;
   dias_trabalhados: number;
@@ -162,6 +174,7 @@ export default function Pagamentos() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedColaborador, setSelectedColaborador] = useState<ColaboradorPagamento | null>(null);
+  const [drawerTab, setDrawerTab] = useState<'folha' | 'perfil'>('folha');
 
   const [dailyDetails, setDailyDetails] = useState<DailyDetail[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(false);
@@ -241,8 +254,17 @@ export default function Pagamentos() {
         {
           nome_completo: string;
           foto_url: string | null;
+
+          email: string | null;
+          telefone: string | null;
+          status: string | null;
+          categoria: string | null;
+          data_entrada_plataforma: string | null;
+
           valor_hora_base: number | null;
           iban: string | null;
+          nif: string | null;
+          niss: string | null;
 
           horas_total: number;
           dias_trabalhados: Set<string>;
@@ -257,6 +279,7 @@ export default function Pagamentos() {
         if (!colabId) return;
 
         const col = p.colaborador || {};
+
         const valorHora =
           typeof col.valor_hora === 'number'
             ? col.valor_hora
@@ -268,8 +291,17 @@ export default function Pagamentos() {
           map.set(colabId, {
             nome_completo: col.nome_completo || 'Desconhecido',
             foto_url: col.foto_url || null,
+
+            email: col.email ?? null,
+            telefone: col.telefone ?? null,
+            status: col.status ?? null,
+            categoria: col.categoria ?? null,
+            data_entrada_plataforma: col.data_entrada_plataforma ?? null,
+
             valor_hora_base: valorHora,
-            iban: col.iban || null,
+            iban: col.iban ?? null,
+            nif: col.nif ?? null,
+            niss: col.niss ?? null,
 
             horas_total: 0,
             dias_trabalhados: new Set(),
@@ -303,8 +335,17 @@ export default function Pagamentos() {
           id,
           nome_completo: v.nome_completo,
           foto_url: v.foto_url,
+
+          email: v.email,
+          telefone: v.telefone,
+          status: v.status,
+          categoria: v.categoria,
+          data_entrada_plataforma: v.data_entrada_plataforma,
+
           valor_hora_base: valor,
           iban: v.iban,
+          nif: v.nif,
+          niss: v.niss,
 
           horas_total: horas,
           dias_trabalhados: v.dias_trabalhados.size,
@@ -365,6 +406,8 @@ export default function Pagamentos() {
       'Valor/Hora',
       'Total a Pagar',
       'IBAN',
+      'NIF',
+      'NISS',
       'Obras',
       'Último registo',
       'Período Início',
@@ -379,6 +422,8 @@ export default function Pagamentos() {
       csvEscape(c.valor_hora_base ? c.valor_hora_base.toFixed(2) : ''),
       csvEscape(c.total_pagar.toFixed(2)),
       csvEscape(c.iban || ''),
+      csvEscape(c.nif || ''),
+      csvEscape(c.niss || ''),
       csvEscape(c.obras_trabalhadas.join('; ')),
       csvEscape(c.ultimo_registro ? formatDatePT(c.ultimo_registro) : ''),
       csvEscape(rangeStartISO),
@@ -391,10 +436,7 @@ export default function Pagamentos() {
 
     const a = document.createElement('a');
     a.href = url;
-    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(
-      2,
-      '0'
-    )}_${rangeStartISO}_a_${rangeEndISO}.csv`;
+    a.download = `folha_pagamento_${selectedYear}-${String(selectedMonth).padStart(2, '0')}_${rangeStartISO}_a_${rangeEndISO}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -412,6 +454,7 @@ export default function Pagamentos() {
 
   const openDetails = async (colaborador: ColaboradorPagamento) => {
     setSelectedColaborador(colaborador);
+    setDrawerTab('folha');
     setDrawerOpen(true);
     await loadDailyDetails(colaborador.id);
   };
@@ -420,6 +463,7 @@ export default function Pagamentos() {
     setDrawerOpen(false);
     setSelectedColaborador(null);
     setDailyDetails([]);
+    setDrawerTab('folha');
   };
 
   const loadDailyDetails = async (colaboradorId: string) => {
@@ -521,25 +565,47 @@ export default function Pagamentos() {
     </Card>
   );
 
+  const TabButton = ({
+    active,
+    icon,
+    label,
+    onClick,
+  }: {
+    active: boolean;
+    icon: React.ReactNode;
+    label: string;
+    onClick: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? 'inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#0B4F8A] text-white text-sm font-semibold shadow-sm'
+          : 'inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/30 text-slate-700 dark:text-slate-200 text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-950/45'
+      }
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
         <div className="min-w-0">
-  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-    Resumo do período
-  </div>
+          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Resumo do período</div>
 
-  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-    Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado),
-    com horas, faltas e total a pagar.
-  </p>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+            Apuramento por colaborador (período {INICIO_DIA} do mês anterior até {FECHO_DIA} do mês selecionado), com horas,
+            faltas e total a pagar.
+          </p>
 
-  <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-    Período atual: <span className="font-semibold">{periodoLabel}</span>
-  </div>
-</div>
-
+          <div className="mt-2 text-xs text-slate-600 dark:text-slate-400">
+            Período atual: <span className="font-semibold">{periodoLabel}</span>
+          </div>
+        </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 justify-end">
           <Button
@@ -714,9 +780,7 @@ export default function Pagamentos() {
 
                       <div className="text-right">
                         <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
-                        <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">
-                          {eur(c.total_pagar)}
-                        </div>
+                        <div className="text-lg font-bold text-emerald-700 dark:text-emerald-300">{eur(c.total_pagar)}</div>
                       </div>
                     </div>
 
@@ -815,7 +879,6 @@ export default function Pagamentos() {
 
             {/* DESKTOP: tabela */}
             <div className="hidden md:block overflow-x-auto">
-              {/* DICA: AÇÕES sticky à direita + colunas pesadas só em xl+ */}
               <table className="w-full min-w-[980px]">
                 <thead className="border-b border-slate-200 dark:border-slate-800/70">
                   <tr>
@@ -884,7 +947,7 @@ export default function Pagamentos() {
                         onClick={() => openDetails(c)}
                         title="Abrir detalhes"
                       >
-                        <td className="py-2.5 px-4" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2.5 px-4">
                           <div className="flex items-center gap-3">
                             {c.foto_url ? (
                               <img
@@ -946,6 +1009,7 @@ export default function Pagamentos() {
                                 onClick={() => copyIBAN(c.iban!)}
                                 className="h-8 w-8 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-950/35"
                                 title="Copiar IBAN"
+                                type="button"
                               >
                                 <Copy size={14} className="text-slate-600 dark:text-slate-300" />
                               </button>
@@ -971,6 +1035,7 @@ export default function Pagamentos() {
                                       e.stopPropagation();
                                       setOpenObrasFor((prev) => (prev === c.id ? null : c.id));
                                     }}
+                                    type="button"
                                     className="px-2 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/30 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-950/45"
                                     title="Ver todas as obras"
                                   >
@@ -989,6 +1054,7 @@ export default function Pagamentos() {
                                           onClick={() => setOpenObrasFor(null)}
                                           aria-label="Fechar obras"
                                           title="Fechar"
+                                          type="button"
                                         >
                                           <X size={14} className="text-slate-600 dark:text-slate-300" />
                                         </button>
@@ -1068,12 +1134,13 @@ export default function Pagamentos() {
         )}
       </Card>
 
-      {/* Drawer Detalhes (mantive igual, só ajustes pequenos) */}
+      {/* Drawer Detalhes */}
       {drawerOpen && selectedColaborador && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={closeDrawer} />
 
           <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white dark:bg-slate-950 shadow-2xl border-l border-slate-200 dark:border-slate-800 overflow-y-auto">
+            {/* Header drawer */}
             <div className="sticky top-0 bg-white dark:bg-slate-950 z-10 border-b border-slate-200 dark:border-slate-800 p-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-center gap-4 min-w-0">
@@ -1102,195 +1169,298 @@ export default function Pagamentos() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      toast.info('Configurar rota do perfil (ex.: /colaboradores/:id)');
-                    }}
-                    className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                  >
-                    <ExternalLink size={14} className="mr-1" />
-                    Ver Perfil
-                  </Button>
+                  <div className="hidden sm:flex items-center gap-2">
+                    <TabButton
+                      active={drawerTab === 'folha'}
+                      icon={<FileSpreadsheet size={16} />}
+                      label="Folha"
+                      onClick={() => setDrawerTab('folha')}
+                    />
+                    <TabButton
+                      active={drawerTab === 'perfil'}
+                      icon={<User size={16} />}
+                      label="Perfil"
+                      onClick={() => setDrawerTab('perfil')}
+                    />
+                  </div>
 
                   <button
                     onClick={closeDrawer}
                     className="h-10 w-10 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-950/35"
                     aria-label="Fechar"
                     title="Fechar"
+                    type="button"
                   >
-                    <span className="text-xl leading-none">×</span>
+                    <X size={18} />
                   </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
-                  <div className="text-xs text-slate-600 dark:text-slate-400">Horas</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    {selectedColaborador.horas_total.toFixed(1)}h
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
-                  <div className="text-xs text-slate-600 dark:text-slate-400">Dias</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    {selectedColaborador.dias_trabalhados}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
-                  <div className="text-xs text-slate-600 dark:text-slate-400">€/Hora</div>
-                  <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                    {selectedColaborador.valor_hora_base ? eur(selectedColaborador.valor_hora_base) : 'N/A'}
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 p-3">
-                  <div className="text-xs text-emerald-700 dark:text-emerald-200">Total a pagar</div>
-                  <div className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
-                    {eur(selectedColaborador.total_pagar)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                {selectedColaborador.iban ? (
-                  <div className="p-3 rounded-xl border border-blue-200 dark:border-blue-500/25 bg-blue-50 dark:bg-blue-500/10 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs text-blue-700 dark:text-blue-200">IBAN</div>
-                      <div className="font-mono text-sm text-blue-900 dark:text-blue-100 truncate">
-                        {selectedColaborador.iban}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => copyIBAN(selectedColaborador.iban!)}
-                      className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                    >
-                      <Copy size={14} className="mr-1" />
-                      Copiar
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 text-sm">
-                    IBAN não definido para este colaborador.
-                  </div>
-                )}
+              {/* Tabs mobile */}
+              <div className="mt-4 flex sm:hidden gap-2">
+                <TabButton
+                  active={drawerTab === 'folha'}
+                  icon={<FileSpreadsheet size={16} />}
+                  label="Folha"
+                  onClick={() => setDrawerTab('folha')}
+                />
+                <TabButton
+                  active={drawerTab === 'perfil'}
+                  icon={<User size={16} />}
+                  label="Perfil"
+                  onClick={() => setDrawerTab('perfil')}
+                />
               </div>
             </div>
 
+            {/* Conteúdo */}
             <div className="p-6 space-y-6">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Obras no período</h3>
-                {selectedColaborador.obras_trabalhadas.length === 0 ? (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedColaborador.obras_trabalhadas.map((o, i) => (
-                      <Badge key={`obra-${i}`} variant="default">
-                        {o}
-                      </Badge>
-                    ))}
+              {drawerTab === 'folha' ? (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                      <div className="text-xs text-slate-600 dark:text-slate-400">Horas</div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {selectedColaborador.horas_total.toFixed(1)}h
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                      <div className="text-xs text-slate-600 dark:text-slate-400">Dias</div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {selectedColaborador.dias_trabalhados}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                      <div className="text-xs text-slate-600 dark:text-slate-400">€/Hora</div>
+                      <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                        {selectedColaborador.valor_hora_base ? eur(selectedColaborador.valor_hora_base) : 'N/A'}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 p-3">
+                      <div className="text-xs text-emerald-700 dark:text-emerald-200">Total a pagar</div>
+                      <div className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
+                        {eur(selectedColaborador.total_pagar)}
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
 
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Registo diário</h3>
-
-                {loadingDetails ? (
-                  <div className="text-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto" style={{ borderColor: BRAND.blue }} />
-                  </div>
-                ) : dailyDetails.length === 0 ? (
-                  <div className="text-sm text-slate-500 dark:text-slate-400">Sem registos neste período.</div>
-                ) : (
-                  <div className="space-y-2">
-                    {dailyDetails.map((d) => (
-                      <div
-                        key={d.presenca_dia_id}
-                        className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/35 transition"
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                                {new Date(d.data).toLocaleDateString('pt-PT', {
-                                  day: '2-digit',
-                                  month: 'short',
-                                  weekday: 'short',
-                                })}
-                              </div>
-                              <Badge variant="default" className="text-xs">
-                                {d.obra_nome}
-                              </Badge>
-                              {d.faltou ? (
-                                <Badge variant="warning" className="text-xs">
-                                  Falta
-                                </Badge>
-                              ) : (
-                                <Badge variant="success" className="text-xs">
-                                  Presença
-                                </Badge>
-                              )}
-                            </div>
-
-                            {d.faltou && d.justificacao_falta && (
-                              <div className="mt-2 text-sm text-slate-700 dark:text-slate-300">
-                                <span className="font-semibold">Justificação:</span> {d.justificacao_falta}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="text-right">
-                            {d.faltou ? (
-                              <div className="text-sm text-slate-600 dark:text-slate-400">—</div>
-                            ) : (
-                              <>
-                                <div className="text-sm text-slate-600 dark:text-slate-300 flex items-center justify-end gap-2">
-                                  <Clock size={14} className="text-slate-400 dark:text-slate-500" />
-                                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                                    {d.horas.toFixed(1)}h
-                                  </span>
-                                </div>
-                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                  {formatTimePT(d.entrada)} → {formatTimePT(d.saida)}
-                                </div>
-                              </>
-                            )}
+                  <div>
+                    {selectedColaborador.iban ? (
+                      <div className="p-3 rounded-xl border border-blue-200 dark:border-blue-500/25 bg-blue-50 dark:bg-blue-500/10 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-xs text-blue-700 dark:text-blue-200">IBAN</div>
+                          <div className="font-mono text-sm text-blue-900 dark:text-blue-100 truncate">
+                            {selectedColaborador.iban}
                           </div>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => copyIBAN(selectedColaborador.iban!)}
+                          className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                        >
+                          <Copy size={14} className="mr-1" />
+                          Copiar
+                        </Button>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 text-amber-900 dark:text-amber-200 text-sm">
+                        IBAN não definido para este colaborador.
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={exportCSV}
-                  className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                >
-                  <Download size={16} className="mr-2" />
-                  Exportar CSV
-                </Button>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Obras no período</h3>
+                    {selectedColaborador.obras_trabalhadas.length === 0 ? (
+                      <div className="text-sm text-slate-500 dark:text-slate-400">—</div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedColaborador.obras_trabalhadas.map((o, i) => (
+                          <Badge key={`obra-${i}`} variant="default">
+                            {o}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                <Button
-                  variant="secondary"
-                  onClick={closeDrawer}
-                  className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
-                >
-                  Fechar
-                </Button>
-              </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100 mb-3">Registo diário</h3>
 
-              <div className="text-xs text-slate-400 dark:text-slate-500">
-                Nota: entrada/saída vem de <span className="font-semibold">presencas_registos</span>. Se faltar entrada ou saída, aparece “—”.
-              </div>
+                    {loadingDetails ? (
+                      <div className="text-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto" style={{ borderColor: BRAND.blue }} />
+                      </div>
+                    ) : dailyDetails.length === 0 ? (
+                      <div className="text-sm text-slate-500 dark:text-slate-400">Sem registos neste período.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {dailyDetails.map((d) => (
+                          <div
+                            key={d.presenca_dia_id}
+                            className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-950/35 transition"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                    {new Date(d.data).toLocaleDateString('pt-PT', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      weekday: 'short',
+                                    })}
+                                  </div>
+                                  <Badge variant="default" className="text-xs">
+                                    {d.obra_nome}
+                                  </Badge>
+                                  {d.faltou ? (
+                                    <Badge variant="warning" className="text-xs">
+                                      Falta
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="success" className="text-xs">
+                                      Presença
+                                    </Badge>
+                                  )}
+                                </div>
+
+                                {d.faltou && d.justificacao_falta && (
+                                  <div className="mt-2 text-sm text-slate-700 dark:text-slate-300">
+                                    <span className="font-semibold">Justificação:</span> {d.justificacao_falta}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="text-right">
+                                {d.faltou ? (
+                                  <div className="text-sm text-slate-600 dark:text-slate-400">—</div>
+                                ) : (
+                                  <>
+                                    <div className="text-sm text-slate-600 dark:text-slate-300 flex items-center justify-end gap-2">
+                                      <Clock size={14} className="text-slate-400 dark:text-slate-500" />
+                                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                                        {d.horas.toFixed(1)}h
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                      {formatTimePT(d.entrada)} → {formatTimePT(d.saida)}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={exportCSV}
+                      className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                    >
+                      <Download size={16} className="mr-2" />
+                      Exportar CSV
+                    </Button>
+
+                    <Button
+                      variant="secondary"
+                      onClick={closeDrawer}
+                      className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                    >
+                      Fechar
+                    </Button>
+                  </div>
+
+                  <div className="text-xs text-slate-400 dark:text-slate-500">
+                    Nota: entrada/saída vem de <span className="font-semibold">presencas_registos</span>. Se faltar entrada ou saída, aparece “—”.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <ColaboradorProfilePanel
+                    variant="embedded"
+                    colaborador={{
+                      id: selectedColaborador.id,
+                      nome_completo: selectedColaborador.nome_completo,
+                      foto_url: selectedColaborador.foto_url,
+
+                      email: selectedColaborador.email,
+                      telefone: selectedColaborador.telefone,
+                      status: selectedColaborador.status,
+                      categoria: selectedColaborador.categoria,
+
+                      data_entrada_plataforma: selectedColaborador.data_entrada_plataforma,
+                      valor_hora: selectedColaborador.valor_hora_base,
+
+                      iban: selectedColaborador.iban,
+                      nif: selectedColaborador.nif,
+                      niss: selectedColaborador.niss,
+                    }}
+                    footer={
+                      <Card className="p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          Indicadores do período selecionado
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+                          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                            <div className="text-xs text-slate-600 dark:text-slate-400">Horas</div>
+                            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                              {selectedColaborador.horas_total.toFixed(1)}h
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                            <div className="text-xs text-slate-600 dark:text-slate-400">Dias</div>
+                            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                              {selectedColaborador.dias_trabalhados}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/25 p-3">
+                            <div className="text-xs text-slate-600 dark:text-slate-400">Faltas</div>
+                            <div className="text-lg font-bold text-slate-900 dark:text-slate-100">
+                              {selectedColaborador.faltas}
+                            </div>
+                          </div>
+
+                          <div className="rounded-xl border border-emerald-200 dark:border-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10 p-3">
+                            <div className="text-xs text-emerald-700 dark:text-emerald-200">Total</div>
+                            <div className="text-lg font-bold text-emerald-900 dark:text-emerald-100">
+                              {eur(selectedColaborador.total_pagar)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex gap-2">
+                          <Button
+                            variant="secondary"
+                            onClick={() => setDrawerTab('folha')}
+                            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                          >
+                            Voltar à Folha
+                          </Button>
+
+                          <Button
+                            variant="secondary"
+                            onClick={closeDrawer}
+                            className="dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100 dark:hover:bg-slate-900/60"
+                          >
+                            Fechar
+                          </Button>
+                        </div>
+                      </Card>
+                    }
+                  />
+                </>
+              )}
             </div>
           </div>
         </div>
