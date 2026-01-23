@@ -30,6 +30,8 @@ interface FormData {
   genero: string;
   data_nascimento: string;
 
+  nacionalidade: string; // ✅ ADD
+
   categoria: string;
   data_entrada_plataforma: string;
 
@@ -65,6 +67,35 @@ const STATUS_OPTIONS = [
   { value: 'inativo', label: 'Inativo' },
   { value: 'ferias', label: 'Férias' },
   { value: 'baixa', label: 'Baixa' },
+];
+
+// ✅ Nacionalidades comuns em obras em Portugal (lista prática)
+const NACIONALIDADES = [
+  { value: '', label: 'Selecionar (opcional)' },
+  { value: 'Portugal', label: 'Portugal' },
+  { value: 'Brasil', label: 'Brasil' },
+  { value: 'Cabo Verde', label: 'Cabo Verde' },
+  { value: 'Angola', label: 'Angola' },
+  { value: 'Guiné-Bissau', label: 'Guiné-Bissau' },
+  { value: 'Moçambique', label: 'Moçambique' },
+  { value: 'São Tomé e Príncipe', label: 'São Tomé e Príncipe' },
+  { value: 'Timor-Leste', label: 'Timor-Leste' },
+  { value: 'Roménia', label: 'Roménia' },
+  { value: 'Ucrânia', label: 'Ucrânia' },
+  { value: 'Moldávia', label: 'Moldávia' },
+  { value: 'Espanha', label: 'Espanha' },
+  { value: 'França', label: 'França' },
+  { value: 'Itália', label: 'Itália' },
+  { value: 'Nepal', label: 'Nepal' },
+  { value: 'Índia', label: 'Índia' },
+  { value: 'Paquistão', label: 'Paquistão' },
+  { value: 'Bangladesh', label: 'Bangladesh' },
+  { value: 'Marrocos', label: 'Marrocos' },
+  { value: 'Tunísia', label: 'Tunísia' },
+  { value: 'Senegal', label: 'Senegal' },
+  { value: 'Nigéria', label: 'Nigéria' },
+  { value: 'Argélia', label: 'Argélia' },
+  { value: 'Outra', label: 'Outra' },
 ];
 
 function todayISO() {
@@ -118,6 +149,9 @@ const emptyForm = (): FormData => ({
   codigo_funcionario: '',
   genero: 'Masculino',
   data_nascimento: '',
+
+  nacionalidade: '', // ✅ ADD (opcional)
+
   categoria: 'Canalizador',
   data_entrada_plataforma: todayISO(),
   valor_hora: '',
@@ -203,6 +237,9 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
         codigo_funcionario: data.codigo_funcionario || '',
         genero: data.genero || 'Masculino',
         data_nascimento: data.data_nascimento || '',
+
+        nacionalidade: data.nacionalidade || '', // ✅ ADD
+
         categoria: data.categoria || 'Canalizador',
         data_entrada_plataforma: data.data_entrada_plataforma || todayISO(),
         valor_hora: data.valor_hora?.toString() || '',
@@ -419,6 +456,9 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
         apelido: apelido || null,
         codigo_funcionario: codigoFunc ? codigoFunc.toUpperCase() : null,
         genero: (formData.genero || '').trim() || null,
+
+        nacionalidade: (formData.nacionalidade || '').trim() || null, // ✅ ADD
+
         categoria: (formData.categoria || '').trim() || null,
         data_entrada_plataforma: formData.data_entrada_plataforma || null,
         valor_hora: Number.isFinite(valorHoraParsed) && valorHoraParsed > 0 ? valorHoraParsed : null,
@@ -451,11 +491,7 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
           );
         }
       } else {
-        const { error } = await supabase
-          .from('colaboradores')
-          .insert([colaboradorData])
-          .select('id')
-          .single();
+        const { error } = await supabase.from('colaboradores').insert([colaboradorData]).select('id').single();
 
         if (error) throw error;
 
@@ -545,7 +581,7 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
                   {previewUrl ? 'Alterar foto' : 'Carregar foto'}
                 </Button>
 
-                {(previewUrl || formData.foto_url) ? (
+                {previewUrl || formData.foto_url ? (
                   <Button type="button" onClick={removeFoto} variant="secondary" className="w-full">
                     Remover foto
                   </Button>
@@ -605,6 +641,14 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
               options={GENEROS}
             />
 
+            {/* ✅ Nacionalidade com lista */}
+            <Select
+              label="Nacionalidade (opcional)"
+              value={formData.nacionalidade}
+              onChange={(e) => setField('nacionalidade', e.target.value)}
+              options={NACIONALIDADES}
+            />
+
             <Input
               label="Data de Nascimento"
               type="date"
@@ -624,9 +668,7 @@ export function ColaboradorModal({ isOpen, onClose, onSuccess, colaboradorId }: 
                 maxLength={9}
               />
 
-              {checkingNif && (
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">A verificar NIF…</div>
-              )}
+              {checkingNif && <div className="text-xs text-neutral-500 dark:text-neutral-400">A verificar NIF…</div>}
 
               {nifDupInfo && (
                 <div className="text-xs font-medium text-red-600 dark:text-red-400">
