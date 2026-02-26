@@ -359,21 +359,24 @@ export function Presencas() {
     const mes1 = safeNumber(m, mesNow0 + 1);
     const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
-   const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
+ const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
 
 const startLabel = `23/${pad2(startMes1)}/${startAno}`;
 const endLabel = `22/${pad2(endMes1)}/${endAno}`;
 const label = `${startLabel} → ${endLabel}`;
 
-    return {
-      anoPeriodo: ano,
-      mesPeriodo1: mes1,
-      mesPeriodo0: mes0,
-      metaMesDefault: metaDefault,
-      rangeInicio: startISO,
-      rangeFim: endISO,
-      periodoLabel: label,
-    };
+// meta padrão do período (dias úteis * 8h)
+const metaDefault = calcularMetaPeriodo(startISO, endISO);
+
+return {
+  anoPeriodo: ano,
+  mesPeriodo1: mes1,
+  mesPeriodo0: mes0,
+  metaMesDefault: metaDefault,
+  rangeInicio: startISO,
+  rangeFim: endISO,
+  periodoLabel: label,
+};
   }, [periodo, anoNow, mesNow0]);
 
   // garantir data do Registrar dentro do período
