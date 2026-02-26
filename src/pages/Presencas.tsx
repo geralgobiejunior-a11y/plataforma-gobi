@@ -87,8 +87,9 @@ function isoFromYMD(y: number, m1: number, d: number) {
   return `${y}-${pad2(m1)}-${pad2(d)}`;
 }
 
-function getPeriodo24a23(ano: number, mes1: number) {
-  const end = isoFromYMD(ano, mes1, 23);
+function getPeriodo23a22(ano: number, mes1: number) {
+  // termina dia 22 do mês selecionado
+  const end = isoFromYMD(ano, mes1, 22);
 
   let prevMes1 = mes1 - 1;
   let prevAno = ano;
@@ -97,7 +98,8 @@ function getPeriodo24a23(ano: number, mes1: number) {
     prevAno = ano - 1;
   }
 
-  const start = isoFromYMD(prevAno, prevMes1, 24);
+  // começa dia 23 do mês anterior
+  const start = isoFromYMD(prevAno, prevMes1, 23);
 
   return {
     startISO: start,
@@ -315,7 +317,14 @@ export function Presencas() {
 
   // Registrar
   const [selectedObra, setSelectedObra] = useState<string>('');
-  const todayISO = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayISO = useMemo(() => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Lisbon',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}, []);
   const [selectedDate, setSelectedDate] = useState<string>(todayISO);
   const [selectedColaboradores, setSelectedColaboradores] = useState<Set<string>>(new Set());
   const [tipoRegistro, setTipoRegistro] = useState<'presenca' | 'falta'>('presenca');
@@ -350,12 +359,11 @@ export function Presencas() {
     const mes1 = safeNumber(m, mesNow0 + 1);
     const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
-    const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo24a23(ano, mes1);
-    const metaDefault = calcularMetaPeriodo(startISO, endISO);
+   const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
 
-    const startLabel = `24/${pad2(startMes1)}/${startAno}`;
-    const endLabel = `23/${pad2(endMes1)}/${endAno}`;
-    const label = `${startLabel} → ${endLabel}`;
+const startLabel = `23/${pad2(startMes1)}/${startAno}`;
+const endLabel = `22/${pad2(endMes1)}/${endAno}`;
+const label = `${startLabel} → ${endLabel}`;
 
     return {
       anoPeriodo: ano,
@@ -692,7 +700,7 @@ export function Presencas() {
         const [a, m] = filtroMes.split('-');
         const ano = safeNumber(a, anoNow);
         const mes1 = safeNumber(m, mesNow0 + 1);
-        const { startISO, endISO } = getPeriodo24a23(ano, mes1);
+        const { startISO, endISO } = getPeriodo23a22(ano, mes1);
         query = query.gte('data', startISO).lte('data', endISO);
       }
 
