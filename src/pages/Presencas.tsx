@@ -9,7 +9,6 @@ import {
   Clock,
   Calendar,
   CheckCircle,
-  XCircle,
   Plus,
   Search,
   Download,
@@ -76,12 +75,19 @@ type PresencaExistente = {
 const BRAND = { blue: '#0B4F8A' };
 const HORAS_DIA = 8;
 
+// Regras almoço (funcional):
+// - Só desconta almoço se o turno "passar pelo horário de almoço" (ex.: 12:00–13:00)
+// - E se o total bruto for >= MIN_HORAS_PARA_ALMOCO
+const ALMOCO_HORAS = 1;
+const MIN_HORAS_PARA_ALMOCO = 6;
+const ALMOCO_INICIO = '12:00';
+const ALMOCO_FIM = '13:00';
+
 const cardBase =
   'border border-slate-200 bg-white shadow-sm ' +
   'dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30';
 
-// -------------------- Período 24 -> 23 (mês de fecho dia 23) --------------------
-// IMPORTANTE: evitar Date().toISOString() para gerar YYYY-MM-DD do período (pode deslocar 1 dia por timezone/DST).
+// -------------------- Período 23 -> 22 (mês de fecho dia 23) --------------------
 const pad2 = (n: number) => String(n).padStart(2, '0');
 function isoFromYMD(y: number, m1: number, d: number) {
   return `${y}-${pad2(m1)}-${pad2(d)}`;
@@ -109,6 +115,16 @@ function getPeriodo23a22(ano: number, mes1: number) {
     endAno: ano,
     endMes1: mes1,
   };
+}
+
+// ✅ Mês de fecho correto (23..fim => próximo mês)
+function getMesFechoFromNow(now = new Date()) {
+  const y = now.getFullYear();
+  const m0 = now.getMonth(); // 0..11
+  const day = now.getDate();
+
+  const fecho = new Date(y, m0 + (day >= 23 ? 1 : 0), 1);
+  return `${fecho.getFullYear()}-${pad2(fecho.getMonth() + 1)}`;
 }
 
 function calcularMetaPeriodo(startISO: string, endISO: string): number {
@@ -154,7 +170,6 @@ function getInitials(name: string) {
 }
 
 function formatWeekdayLabel(dateISO: string) {
-  // usar meio-dia para reduzir efeitos de DST na formatação
   const d = new Date(`${dateISO}T12:00:00`);
   if (Number.isNaN(d.getTime())) return '';
   return d.toLocaleDateString('pt-PT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
@@ -194,6 +209,31 @@ function hasFaltaRegisto(registos: any[]): boolean {
 function eurPct(pct: number) {
   const v = Math.max(0, Math.min(100, pct));
   return `${v.toFixed(0)}%`;
+}
+
+// ✅ Horas líquidas (desconta almoço só quando faz sentido):
+// - desconto de 1h apenas se houver sobreposição com o intervalo ALMOCO_INICIO–ALMOCO_FIM
+// - e se bruto >= MIN_HORAS_PARA_ALMOCO
+function calcHorasLiquidas(entrada: Date, saida: Date) {
+  const bruto = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
+  if (!Number.isFinite(bruto) || bruto <= 0) return 0;
+
+  const y = entrada.getFullYear();
+  const m = entrada.getMonth();
+  const d = entrada.getDate();
+
+  const [aiH, aiM] = ALMOCO_INICIO.split(':').map((x) => Number(x));
+  const [afH, afM] = ALMOCO_FIM.split(':').map((x) => Number(x));
+
+  const almocoInicio = new Date(y, m, d, aiH || 0, aiM || 0, 0, 0);
+  const almocoFim = new Date(y, m, d, afH || 0, afM || 0, 0, 0);
+
+  const overlapStart = Math.max(entrada.getTime(), almocoInicio.getTime());
+  const overlapEnd = Math.min(saida.getTime(), almocoFim.getTime());
+  const temOverlapAlmoco = overlapEnd > overlapStart; // passou pelo horário de almoço
+
+  const desconta = bruto >= MIN_HORAS_PARA_ALMOCO && temOverlapAlmoco ? ALMOCO_HORAS : 0;
+  return Math.max(0, bruto - desconta);
 }
 
 // -------------------- Modal simples (mantido) --------------------
@@ -301,7 +341,9 @@ export function Presencas() {
   const mesNow0 = now.getMonth();
   const anoNow = now.getFullYear();
 
-  const [periodo, setPeriodo] = useState<string>(`${anoNow}-${pad2(mesNow0 + 1)}`);
+  // ✅ Default do período = mês de fecho correto
+  const [periodo, setPeriodo] = useState<string>(() => getMesFechoFromNow(new Date()));
+
   const [periodoObra, setPeriodoObra] = useState<string>('');
   const [viewMode, setViewMode] = useState<'resumo' | 'registrar' | 'historico'>('resumo');
 
@@ -314,17 +356,18 @@ export function Presencas() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [resumoColaboradorId, setResumoColaboradorId] = useState<string>('');
+  const [registrarSearch, setRegistrarSearch] = useState('');
 
   // Registrar
   const [selectedObra, setSelectedObra] = useState<string>('');
   const todayISO = useMemo(() => {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Lisbon',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}, []);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Lisbon',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  }, []);
   const [selectedDate, setSelectedDate] = useState<string>(todayISO);
   const [selectedColaboradores, setSelectedColaboradores] = useState<Set<string>>(new Set());
   const [tipoRegistro, setTipoRegistro] = useState<'presenca' | 'falta'>('presenca');
@@ -359,24 +402,23 @@ export function Presencas() {
     const mes1 = safeNumber(m, mesNow0 + 1);
     const mes0 = Math.max(0, Math.min(11, mes1 - 1));
 
- const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
+    const { startISO, endISO, startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
 
-const startLabel = `23/${pad2(startMes1)}/${startAno}`;
-const endLabel = `22/${pad2(endMes1)}/${endAno}`;
-const label = `${startLabel} → ${endLabel}`;
+    const startLabel = `23/${pad2(startMes1)}/${startAno}`;
+    const endLabel = `22/${pad2(endMes1)}/${endAno}`;
+    const label = `${startLabel} → ${endLabel}`;
 
-// meta padrão do período (dias úteis * 8h)
-const metaDefault = calcularMetaPeriodo(startISO, endISO);
+    const metaDefault = calcularMetaPeriodo(startISO, endISO);
 
-return {
-  anoPeriodo: ano,
-  mesPeriodo1: mes1,
-  mesPeriodo0: mes0,
-  metaMesDefault: metaDefault,
-  rangeInicio: startISO,
-  rangeFim: endISO,
-  periodoLabel: label,
-};
+    return {
+      anoPeriodo: ano,
+      mesPeriodo1: mes1,
+      mesPeriodo0: mes0,
+      metaMesDefault: metaDefault,
+      rangeInicio: startISO,
+      rangeFim: endISO,
+      periodoLabel: label,
+    };
   }, [periodo, anoNow, mesNow0]);
 
   // garantir data do Registrar dentro do período
@@ -402,6 +444,10 @@ return {
     if (selectedObra && viewMode === 'registrar') loadColaboradoresObra();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedObra, viewMode]);
+
+  useEffect(() => {
+    setRegistrarSearch('');
+  }, [selectedObra]);
 
   useEffect(() => {
     if (viewMode === 'historico') loadHistorico();
@@ -796,7 +842,8 @@ return {
     if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) throw new Error('Horários inválidos');
     if (saida.getTime() <= entrada.getTime()) throw new Error('A hora de saída deve ser maior do que a entrada');
 
-    const diffHoras = (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
+    // ✅ horas líquidas (desconta almoço quando cruza 12:00–13:00 e bruto >= 6h)
+    const diffHoras = calcHorasLiquidas(entrada, saida);
 
     const { data: presencaDia, error: upsertErr } = await supabase
       .from('presencas_dia')
@@ -856,13 +903,14 @@ return {
   const selectedDateIsSunday = useMemo(() => isSundayISO(selectedDate), [selectedDate]);
   const selectedDateOutOfPeriodo = useMemo(() => !isBetweenISO(selectedDate, rangeInicio, rangeFim), [selectedDate, rangeInicio, rangeFim]);
 
+  // ✅ Preview com almoço descontado
   const editDiffPreview = useMemo(() => {
     if (editStatus !== 'presenca') return null;
     const entrada = new Date(`${selectedDate}T${editEntrada}:00`);
     const saida = new Date(`${selectedDate}T${editSaida}:00`);
     if (Number.isNaN(entrada.getTime()) || Number.isNaN(saida.getTime())) return null;
     if (saida.getTime() <= entrada.getTime()) return null;
-    return (saida.getTime() - entrada.getTime()) / (1000 * 60 * 60);
+    return calcHorasLiquidas(entrada, saida);
   }, [editStatus, editEntrada, editSaida, selectedDate]);
 
   const handleSaveEdit = async () => {
@@ -1000,6 +1048,21 @@ return {
     return { totalHoras, totalFaltas, totalDias };
   }, [presencasMes]);
 
+  const historicoPeriodoLabel = useMemo(() => {
+    if (!filtroMes) return '';
+
+    const [a, m] = filtroMes.split('-');
+    const ano = safeNumber(a, anoNow);
+    const mes1 = safeNumber(m, mesNow0 + 1);
+
+    const { startMes1, startAno, endMes1, endAno } = getPeriodo23a22(ano, mes1);
+
+    const startLabel = `23/${pad2(startMes1)}/${startAno}`;
+    const endLabel = `22/${pad2(endMes1)}/${endAno}`;
+
+    return `${startLabel} → ${endLabel}`;
+  }, [filtroMes, anoNow, mesNow0]);
+
   const historicoColaboradoresOptions = useMemo(() => {
     const map = new Map<string, string>();
     historico.forEach((h) => {
@@ -1041,8 +1104,6 @@ return {
     URL.revokeObjectURL(url);
   };
 
-  // Pesquisa local no Registrar (lista de colaboradores) — melhora UX no mobile
-  const [registrarSearch, setRegistrarSearch] = useState('');
   const colaboradoresFilteredRegistrar = useMemo(() => {
     if (!registrarSearch) return colaboradores;
     const q = registrarSearch.toLowerCase().trim();
@@ -1050,7 +1111,10 @@ return {
   }, [colaboradores, registrarSearch]);
 
   const selectedCount = selectedColaboradores.size;
-  const selectedHasExisting = useMemo(() => Array.from(selectedColaboradores).some((id) => !!existentesByColab[id]), [selectedColaboradores, existentesByColab]);
+  const selectedHasExisting = useMemo(
+    () => Array.from(selectedColaboradores).some((id) => !!existentesByColab[id]),
+    [selectedColaboradores, existentesByColab]
+  );
 
   return (
     <div className="space-y-6">
@@ -1062,7 +1126,7 @@ return {
               <div className="min-w-0">
                 <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Presenças & Faltas</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  Apuramento por período <span className="font-semibold">24 → 23</span> (fecho dia 23).{' '}
+                  Apuramento por período <span className="font-semibold">23 → 22</span> (fecho dia 23).{' '}
                   <span className="font-semibold">{periodoLabel}</span>
                 </p>
               </div>
@@ -1113,12 +1177,31 @@ return {
       {/* -------------------- RESUMO -------------------- */}
       {viewMode === 'resumo' && (
         <>
-          {/* KPIs — mobile 2x2 */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <KpiCard icon={<Target size={20} className="text-blue-700 dark:text-blue-300" />} label="Meta padrão" value={`${metaMesDefault}h`} hint="8h/dia (seg–sex)" />
-            <KpiCard icon={<Users size={20} className="text-emerald-700 dark:text-emerald-300" />} label="Colaboradores" value={presencasMes.length} hint="Com registos" />
-            <KpiCard icon={<Clock size={20} className="text-amber-700 dark:text-amber-200" />} label="Total de horas" value={`${totaisResumo.totalHoras.toFixed(1)}h`} hint={`${totaisResumo.totalDias} dias`} />
-            <KpiCard icon={<UserX size={20} className="text-red-700 dark:text-red-300" />} label="Faltas" value={totaisResumo.totalFaltas} tone={totaisResumo.totalFaltas > 0 ? 'warn' : 'default'} />
+            <KpiCard
+              icon={<Target size={20} className="text-blue-700 dark:text-blue-300" />}
+              label="Meta padrão"
+              value={`${metaMesDefault}h`}
+              hint="8h/dia (seg–sex)"
+            />
+            <KpiCard
+              icon={<Users size={20} className="text-emerald-700 dark:text-emerald-300" />}
+              label="Colaboradores"
+              value={presencasMes.length}
+              hint="Com registos"
+            />
+            <KpiCard
+              icon={<Clock size={20} className="text-amber-700 dark:text-amber-200" />}
+              label="Total de horas"
+              value={`${totaisResumo.totalHoras.toFixed(1)}h`}
+              hint={`${totaisResumo.totalDias} dias`}
+            />
+            <KpiCard
+              icon={<UserX size={20} className="text-red-700 dark:text-red-300" />}
+              label="Faltas"
+              value={totaisResumo.totalFaltas}
+              tone={totaisResumo.totalFaltas > 0 ? 'warn' : 'default'}
+            />
           </div>
 
           {/* Pesquisa + Select colaborador */}
@@ -1209,7 +1292,10 @@ return {
                               className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl object-cover border border-slate-200 dark:border-slate-800"
                             />
                           ) : (
-                            <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl flex items-center justify-center text-white font-semibold" style={{ background: BRAND.blue }}>
+                            <div
+                              className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl flex items-center justify-center text-white font-semibold"
+                              style={{ background: BRAND.blue }}
+                            >
                               {getInitials(presenca.colaborador.nome_completo)}
                             </div>
                           )}
@@ -1226,7 +1312,6 @@ return {
                               <Badge variant={atingiuMeta ? 'success' : proximo ? 'warning' : 'default'}>{eurPct(pct)} da meta</Badge>
                             </div>
 
-                            {/* Stats: mobile compacto */}
                             <div className="mt-3 grid grid-cols-3 sm:grid-cols-5 gap-3">
                               <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
                                 <div className="text-[11px] text-slate-500 dark:text-slate-400">Horas</div>
@@ -1273,7 +1358,6 @@ return {
                               </div>
                             </div>
 
-                            {/* Meta input para mobile (fica separado e limpo) */}
                             <div className="sm:hidden mt-3 rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
                               <div className="flex items-center justify-between gap-3">
                                 <div className="text-xs text-slate-500 dark:text-slate-400">Meta (período)</div>
@@ -1431,7 +1515,7 @@ return {
                     </div>
 
                     <div className="col-span-2 text-xs text-slate-500 dark:text-slate-400">
-                      Dica: se você usar sempre o mesmo horário, basta selecionar colaboradores e registrar.
+                      Dica: desconta 1h de almoço apenas se o turno cruzar <strong>{ALMOCO_INICIO}–{ALMOCO_FIM}</strong> e tiver pelo menos <strong>{MIN_HORAS_PARA_ALMOCO}h</strong> brutas.
                     </div>
                   </div>
                 ) : (
@@ -1583,7 +1667,6 @@ return {
                   )}
                 </div>
 
-                {/* Barra de ação (fica bem no mobile) */}
                 <div className="sticky bottom-0 z-10">
                   <div className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white/95 dark:bg-slate-950/70 backdrop-blur p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="text-sm text-slate-700 dark:text-slate-200">
@@ -1626,7 +1709,14 @@ return {
         <Card className={cardBase}>
           <CardHeader>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="font-semibold text-slate-900 dark:text-slate-100">Histórico de Registos</div>
+              <div className="min-w-0">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">Histórico de Registos</div>
+                {historicoPeriodoLabel && (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Período: <span className="font-semibold">{historicoPeriodoLabel}</span>
+                  </div>
+                )}
+              </div>
 
               <div className="flex flex-col sm:flex-row gap-2">
                 <Select
@@ -1677,10 +1767,7 @@ return {
                 {/* Mobile: cards */}
                 <div className="md:hidden space-y-3">
                   {historico.map((reg) => (
-                    <div
-                      key={reg.id}
-                      className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white dark:bg-slate-950/35 p-4"
-                    >
+                    <div key={reg.id} className="rounded-2xl border border-slate-200 dark:border-slate-800/70 bg-white dark:bg-slate-950/35 p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1717,9 +1804,7 @@ return {
                         </div>
                         <div className="rounded-xl border border-slate-200 dark:border-slate-800/70 bg-slate-50 dark:bg-slate-950/25 p-3">
                           <div className="text-[11px] text-slate-500 dark:text-slate-400">Total</div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                            {reg.faltou ? '—' : `${reg.total_horas.toFixed(1)}h`}
-                          </div>
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{reg.faltou ? '—' : `${reg.total_horas.toFixed(1)}h`}</div>
                         </div>
                       </div>
 
@@ -1758,9 +1843,7 @@ return {
                           <td className="py-3 px-4 text-sm font-medium text-slate-900 dark:text-slate-100">{reg.colaborador_nome}</td>
                           <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.entrada || '-'}</td>
                           <td className="py-3 px-4 text-sm text-slate-600 dark:text-slate-300">{reg.saida || '-'}</td>
-                          <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                            {reg.faltou ? '-' : `${reg.total_horas.toFixed(1)}h`}
-                          </td>
+                          <td className="py-3 px-4 text-sm font-semibold text-slate-900 dark:text-slate-100">{reg.faltou ? '-' : `${reg.total_horas.toFixed(1)}h`}</td>
                           <td className="py-3 px-4">
                             {reg.faltou ? (
                               <Badge variant="danger">
@@ -1907,6 +1990,7 @@ return {
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     Total calculado:{' '}
                     <span className="font-semibold text-slate-900 dark:text-slate-100">{editDiffPreview !== null ? `${editDiffPreview.toFixed(2)}h` : '—'}</span>
+                    <span className="ml-2">(desconta almoço só se cruzar {ALMOCO_INICIO}–{ALMOCO_FIM})</span>
                   </div>
                 </div>
               </div>

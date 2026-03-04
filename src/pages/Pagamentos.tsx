@@ -68,21 +68,28 @@ const cardBase =
   'border border-slate-200 bg-white shadow-sm ' +
   'dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30';
 
-// REGRA DO PERÍODO:
-// Mês “fecha” no dia 23 => o período do “mês selecionado” é de 24 do mês anterior até 23 do mês selecionado (inclusive).
-const FECHO_DIA = 23;
-const INICIO_DIA = FECHO_DIA + 1; // 24
+// REGRA DO PERÍODO (igual Presenças.tsx):
+// O "mês selecionado" apura de 23 do mês anterior até 22 do mês selecionado (inclusive).
+const INICIO_DIA = 23;
+const FECHO_DIA = 22;
 
-function toISODateUTC(d: Date) {
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD
-}
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const isoFromYMD = (y: number, m1: number, d: number) => `${y}-${pad2(m1)}-${pad2(d)}`;
 
 function periodRangeByClosingDay(year: number, month: number) {
-  // month: 1..12 (mês de fecho)
-  // Ex.: seleciona 2026-01 => 2025-12-24 até 2026-01-23
-  const end = new Date(Date.UTC(year, month - 1, FECHO_DIA));
-  const start = new Date(Date.UTC(year, month - 2, INICIO_DIA));
-  return { startDate: start, endDate: end, startISO: toISODateUTC(start), endISO: toISODateUTC(end) };
+  // month: 1..12 (mês selecionado)
+  // Ex.: 2026-01 => 2025-12-23 até 2026-01-22
+  let prevMonth = month - 1;
+  let prevYear = year;
+  if (prevMonth < 1) {
+    prevMonth = 12;
+    prevYear = year - 1;
+  }
+
+  const startISO = isoFromYMD(prevYear, prevMonth, INICIO_DIA);
+  const endISO = isoFromYMD(year, month, FECHO_DIA);
+
+  return { startISO, endISO };
 }
 
 function formatDatePT(date?: string | null) {
@@ -148,7 +155,7 @@ function Pill({
 export default function Pagamentos() {
   const now = new Date();
 
-  // UI: seletor único mês (mês do FECHO, dia 23)
+  // UI: seletor único mês (mês selecionado; período 23→22)
   const [periodo, setPeriodo] = useState<string>(
     `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   );
@@ -213,6 +220,19 @@ export default function Pagamentos() {
     loadColaboradoresPagamento();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rangeStartISO, rangeEndISO]);
+  
+useEffect(() => {
+  setSearch('');
+  setColaboradorFilterId('');
+  setOpenObrasFor(null);
+  setRecibosOpen(false);
+
+  // fecha drawer ao trocar período (evita mostrar dados do mês antigo)
+  setDrawerOpen(false);
+  setSelectedColaborador(null);
+  setDailyDetails([]);
+  setDrawerTab('folha');
+}, [rangeStartISO, rangeEndISO]);
 
   useEffect(() => {
     if (!openObrasFor) return;
@@ -234,146 +254,176 @@ export default function Pagamentos() {
     return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
   };
 
-  const loadColaboradoresPagamento = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('presencas_dia')
-        .select(
-          `
-          colaborador_id,
-          total_horas,
-          faltou,
-          data,
-          obra:obras(nome),
-          colaborador:colaboradores(*)
+ const loadColaboradoresPagamento = async () => {
+  setLoading(true);
+  try {
+    // 1) Buscar presenças do período (inclui o ID do dia)
+    const { data, error } = await supabase
+      .from('presencas_dia')
+      .select(
         `
-        )
-        .gte('data', rangeStartISO)
-        .lte('data', rangeEndISO);
+        id,
+        colaborador_id,
+        total_horas,
+        data,
+        obra:obras(nome),
+        colaborador:colaboradores(*)
+      `
+      )
+      .gte('data', rangeStartISO)
+      .lte('data', rangeEndISO);
 
-      if (error) throw error;
+    if (error) throw error;
 
-      const map = new Map<
-        string,
-        {
-          nome_completo: string;
-          foto_url: string | null;
+    const presencas = (data || []) as any[];
 
-          email: string | null;
-          telefone: string | null;
-          status: string | null;
-          categoria: string | null;
-          data_entrada_plataforma: string | null;
+    // 2) Buscar registos e marcar quais presencas_dia têm "falta"
+    const ids = presencas.map((p) => p.id).filter(Boolean);
+    const faltasSet = new Set<string>();
 
-          valor_hora_base: number | null;
-          iban: string | null;
-          nif: string | null;
-          niss: string | null;
+    if (ids.length > 0) {
+      const { data: regs, error: regsErr } = await supabase
+        .from('presencas_registos')
+        .select('presenca_dia_id, tipo')
+        .in('presenca_dia_id', ids);
 
-          horas_total: number;
-          dias_trabalhados: Set<string>;
-          faltas: number;
-          obras: Set<string>;
-          ultimo_registro: string | null;
-        }
-      >();
+      if (regsErr) throw regsErr;
 
-      (data || []).forEach((p: any) => {
-        const colabId: string = p.colaborador_id;
-        if (!colabId) return;
-
-        const col = p.colaborador || {};
-
-        const valorHora =
-          typeof col.valor_hora === 'number'
-            ? col.valor_hora
-            : typeof col.valor_hora_base === 'number'
-              ? col.valor_hora_base
-              : null;
-
-        if (!map.has(colabId)) {
-          map.set(colabId, {
-            nome_completo: col.nome_completo || 'Desconhecido',
-            foto_url: col.foto_url || null,
-
-            email: col.email ?? null,
-            telefone: col.telefone ?? null,
-            status: col.status ?? null,
-            categoria: col.categoria ?? null,
-            data_entrada_plataforma: col.data_entrada_plataforma ?? null,
-
-            valor_hora_base: valorHora,
-            iban: col.iban ?? null,
-            nif: col.nif ?? null,
-            niss: col.niss ?? null,
-
-            horas_total: 0,
-            dias_trabalhados: new Set(),
-            faltas: 0,
-            obras: new Set(),
-            ultimo_registro: null,
-          });
-        }
-
-        const row = map.get(colabId)!;
-
-        if (p.faltou) {
-          row.faltas += 1;
-        } else {
-          row.horas_total += Number(p.total_horas || 0);
-          row.dias_trabalhados.add(String(p.data));
-        }
-
-        if (p.obra?.nome) row.obras.add(String(p.obra.nome));
-
-        const dt = String(p.data || '');
-        if (dt && (!row.ultimo_registro || dt > row.ultimo_registro)) row.ultimo_registro = dt;
+      (regs || []).forEach((r: any) => {
+        if (String(r.tipo) === 'falta') faltasSet.add(String(r.presenca_dia_id));
       });
-
-      const list: ColaboradorPagamento[] = Array.from(map.entries()).map(([id, v]) => {
-        const horas = Math.round(v.horas_total * 10) / 10;
-        const valor = typeof v.valor_hora_base === 'number' ? v.valor_hora_base : null;
-        const total = valor ? Math.round(horas * valor * 100) / 100 : 0;
-
-        return {
-          id,
-          nome_completo: v.nome_completo,
-          foto_url: v.foto_url,
-
-          email: v.email,
-          telefone: v.telefone,
-          status: v.status,
-          categoria: v.categoria,
-          data_entrada_plataforma: v.data_entrada_plataforma,
-
-          valor_hora_base: valor,
-          iban: v.iban,
-          nif: v.nif,
-          niss: v.niss,
-
-          horas_total: horas,
-          dias_trabalhados: v.dias_trabalhados.size,
-          faltas: v.faltas,
-          total_pagar: total,
-
-          obras_trabalhadas: Array.from(v.obras),
-          ultimo_registro: v.ultimo_registro,
-        };
-      });
-
-      list.sort((a, b) => b.total_pagar - a.total_pagar);
-      setColaboradores(list);
-
-      setColaboradorFilterId((prev) => (prev && !list.some((c) => c.id === prev) ? '' : prev));
-    } catch (e: any) {
-      console.error(e);
-      toast.error('Erro ao carregar dados do financeiro');
-      setColaboradores([]);
-    } finally {
-      setLoading(false);
     }
-  };
+
+    // 3) Agregar por colaborador
+    const map = new Map<
+      string,
+      {
+        nome_completo: string;
+        foto_url: string | null;
+
+        email: string | null;
+        telefone: string | null;
+        status: string | null;
+        categoria: string | null;
+        data_entrada_plataforma: string | null;
+
+        valor_hora_base: number | null;
+        iban: string | null;
+        nif: string | null;
+        niss: string | null;
+
+        horas_total: number;
+        dias_trabalhados: Set<string>;
+        faltas: number;
+        obras: Set<string>;
+        ultimo_registro: string | null;
+      }
+    >();
+
+    presencas.forEach((p: any) => {
+      const colabId: string = p.colaborador_id;
+      if (!colabId) return;
+
+      const col = p.colaborador || {};
+
+      const valorHora =
+        typeof col.valor_hora === 'number'
+          ? col.valor_hora
+          : typeof col.valor_hora_base === 'number'
+            ? col.valor_hora_base
+            : null;
+
+      if (!map.has(colabId)) {
+        map.set(colabId, {
+          nome_completo: col.nome_completo || 'Desconhecido',
+          foto_url: col.foto_url || null,
+
+          email: col.email ?? null,
+          telefone: col.telefone ?? null,
+          status: col.status ?? null,
+          categoria: col.categoria ?? null,
+          data_entrada_plataforma: col.data_entrada_plataforma ?? null,
+
+          valor_hora_base: valorHora,
+          iban: col.iban ?? null,
+          nif: col.nif ?? null,
+          niss: col.niss ?? null,
+
+          horas_total: 0,
+          dias_trabalhados: new Set(),
+          faltas: 0,
+          obras: new Set(),
+          ultimo_registro: null,
+        });
+      }
+
+      const row = map.get(colabId)!;
+
+      const pid = String(p.id);
+      const isFalta = faltasSet.has(pid);
+
+     const horasDia = Number(p.total_horas || 0);
+
+if (isFalta) {
+  row.faltas += 1;
+} else {
+  row.horas_total += horasDia;
+  if (horasDia > 0) row.dias_trabalhados.add(String(p.data));
+}
+
+      if (p.obra?.nome) row.obras.add(String(p.obra.nome));
+
+      const dt = String(p.data || '');
+      if (dt && (!row.ultimo_registro || dt > row.ultimo_registro)) row.ultimo_registro = dt;
+    });
+
+    // 4) Montar lista final
+    const list: ColaboradorPagamento[] = Array.from(map.entries()).map(([id, v]) => {
+      const horas = Math.round(v.horas_total * 10) / 10;
+      const valor = typeof v.valor_hora_base === 'number' ? v.valor_hora_base : null;
+      const total =
+  typeof valor === 'number'
+    ? Math.round(horas * valor * 100) / 100
+    : 0;
+
+      return {
+        id,
+        nome_completo: v.nome_completo,
+        foto_url: v.foto_url,
+
+        email: v.email,
+        telefone: v.telefone,
+        status: v.status,
+        categoria: v.categoria,
+        data_entrada_plataforma: v.data_entrada_plataforma,
+
+        valor_hora_base: valor,
+        iban: v.iban,
+        nif: v.nif,
+        niss: v.niss,
+
+        horas_total: horas,
+        dias_trabalhados: v.dias_trabalhados.size,
+        faltas: v.faltas,
+        total_pagar: total,
+
+        obras_trabalhadas: Array.from(v.obras),
+        ultimo_registro: v.ultimo_registro,
+      };
+    });
+
+    list.sort((a, b) => b.total_pagar - a.total_pagar);
+    setColaboradores(list);
+
+    setColaboradorFilterId((prev) => (prev && !list.some((c) => c.id === prev) ? '' : prev));
+  } catch (e: any) {
+    console.error(e);
+    toast.error('Erro ao carregar dados do financeiro');
+    setColaboradores([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const filtered = useMemo(() => {
     const q = normalize(search);
@@ -496,45 +546,49 @@ export default function Pagamentos() {
       const presencas = (dias || []) as any[];
       const ids = presencas.map((p) => p.id).filter(Boolean);
 
-      const registosMap = new Map<string, { entrada: string | null; saida: string | null }>();
+    const registosMap = new Map<string, { entrada: string | null; saida: string | null; faltou: boolean }>();
 
-      if (ids.length > 0) {
-        const { data: regs, error: regsErr } = await supabase
-          .from('presencas_registos')
-          .select('presenca_dia_id, tipo, momento')
-          .in('presenca_dia_id', ids)
-          .order('momento', { ascending: true });
+if (ids.length > 0) {
+  const { data: regs, error: regsErr } = await supabase
+    .from('presencas_registos')
+    .select('presenca_dia_id, tipo, momento')
+    .in('presenca_dia_id', ids)
+    .order('momento', { ascending: true });
 
-        if (regsErr) throw regsErr;
+  if (regsErr) throw regsErr;
 
-        (regs || []).forEach((r: any) => {
-          const pid = String(r.presenca_dia_id);
-          const tipo = String(r.tipo);
-          const ts = r.momento ? String(r.momento) : null;
+  (regs || []).forEach((r: any) => {
+    const pid = String(r.presenca_dia_id);
+    const tipo = String(r.tipo);
+    const ts = r.momento ? String(r.momento) : null;
 
-          if (!registosMap.has(pid)) registosMap.set(pid, { entrada: null, saida: null });
+    if (!registosMap.has(pid)) registosMap.set(pid, { entrada: null, saida: null, faltou: false });
 
-          const cur = registosMap.get(pid)!;
-          if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts;
-          if (tipo === 'saida') cur.saida = ts;
-        });
-      }
+    const cur = registosMap.get(pid)!;
 
-      const details: DailyDetail[] = presencas.map((p) => {
-        const pid = String(p.id);
-        const rs = registosMap.get(pid);
+    if (tipo === 'falta') cur.faltou = true;
+    if (tipo === 'entrada' && !cur.entrada) cur.entrada = ts;
+    if (tipo === 'saida') cur.saida = ts;
+  });
+}
 
-        return {
-          presenca_dia_id: pid,
-          data: String(p.data),
-          obra_nome: p.obra?.nome ? String(p.obra.nome) : 'Sem obra',
-          horas: Number(p.total_horas || 0),
-          entrada: rs?.entrada || null,
-          saida: rs?.saida || null,
-          faltou: Boolean(p.faltou),
-          justificacao_falta: p.justificacao_falta ? String(p.justificacao_falta) : null,
-        };
-      });
+     const details: DailyDetail[] = presencas.map((p) => {
+  const pid = String(p.id);
+  const rs = registosMap.get(pid);
+
+  const faltouDia = Boolean(p.faltou) || Boolean(rs?.faltou);
+
+  return {
+    presenca_dia_id: pid,
+    data: String(p.data),
+    obra_nome: p.obra?.nome ? String(p.obra.nome) : 'Sem obra',
+    horas: faltouDia ? 0 : Number(p.total_horas || 0),
+    entrada: rs?.entrada || null,
+    saida: rs?.saida || null,
+    faltou: faltouDia,
+    justificacao_falta: p.justificacao_falta ? String(p.justificacao_falta) : null,
+  };
+});
 
       setDailyDetails(details);
     } catch (e: any) {
