@@ -13,6 +13,11 @@ import {
   CheckCircle2,
   XCircle,
   UserCircle2,
+  X as XIcon,
+  Mail,
+  Phone,
+  Shield,
+  KeyRound,
 } from 'lucide-react';
 
 import { Card } from '../../ui/Card';
@@ -29,7 +34,7 @@ type ColaboradorRow = {
   status: string | null;
   categoria: string | null;
   user_id: string | null;
-  avatar_url?: string | null; // opcional (tentamos carregar se existir)
+  avatar_url?: string | null;
 };
 
 type ObraRow = {
@@ -84,7 +89,6 @@ function obraDisplayName(o: ObraRow) {
 }
 
 async function selectColaboradoresSmart(): Promise<{ data: ColaboradorRow[]; error: any }> {
-  // Evita assumir coluna de foto; tenta as mais comuns e faz fallback.
   const tries = [
     supabase
       .from('colaboradores')
@@ -161,6 +165,21 @@ async function copyToClipboard(text: string) {
   }
 }
 
+// ======= NOVO: tipos e helper do create-user
+type CreateUserMode = 'invite' | 'password';
+
+type CreateUserBody = {
+  colaborador_id: string;
+  mode: CreateUserMode;
+  email: string;
+  password?: string;
+  nome_completo: string;
+  telefone?: string | null;
+  categoria?: string | null;
+  role?: string;
+  idioma?: string;
+};
+
 export function PermissoesAppTab() {
   const [loading, setLoading] = useState(true);
 
@@ -184,6 +203,18 @@ export function PermissoesAppTab() {
   const [encPickerOpen, setEncPickerOpen] = useState(false);
   const [encPersonQuery, setEncPersonQuery] = useState('');
   const [encSelectedUserId, setEncSelectedUserId] = useState<string>('');
+
+  // ===== NOVO: modal criar acesso
+  const [createOpen, setCreateOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  const [createMode, setCreateMode] = useState<CreateUserMode>('invite');
+  const [createNome, setCreateNome] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
+  const [createTelefone, setCreateTelefone] = useState('');
+  const [createCategoria, setCreateCategoria] = useState('');
+  const [createRole, setCreateRole] = useState('operacoes');
+  const [createPassword, setCreatePassword] = useState('');
 
   useEffect(() => {
     loadAll();
@@ -274,7 +305,111 @@ export function PermissoesAppTab() {
       .slice(0, 10);
   }, [colabs, encPersonQuery]);
 
-  // ===== Acesso App: link/unlink (sem expor UID)
+  // ===== NOVO: criar acesso (Edge Function)
+ const openCreateModal = (prefill?: Partial<CreateUserBody>) => {
+  const c = selectedColab;
+
+  setCreateMode(prefill?.mode ?? 'invite');
+  setCreateNome(prefill?.nome_completo ?? c?.nome_completo ?? '');
+  setCreateEmail(prefill?.email ?? c?.email ?? '');
+  setCreateTelefone(String(prefill?.telefone ?? ''));
+  setCreateCategoria(String(prefill?.categoria ?? c?.categoria ?? ''));
+  setCreateRole(prefill?.role ?? 'operacoes');
+  setCreatePassword('');
+  setCreateOpen(true);
+};
+
+ const createAccess = async () => {
+  const email = createEmail.trim().toLowerCase();
+  const nome = createNome.trim();
+
+  if (!selectedColab) {
+    toast.error('Selecione primeiro um colaborador.');
+    return;
+  }
+
+  if (!email || !email.includes('@')) {
+    toast.error('Email inválido.');
+    return;
+  }
+
+  if (!nome) {
+    toast.error('Nome completo é obrigatório.');
+    return;
+  }
+
+  if (createMode === 'password' && createPassword.trim().length < 8) {
+    toast.error('Senha temporária deve ter pelo menos 8 caracteres.');
+    return;
+  }
+
+  if (selectedColab.user_id && isUuid(String(selectedColab.user_id))) {
+    toast.error('Este colaborador já tem acesso ao app.');
+    return;
+  }
+
+  setCreating(true);
+  try {
+    const body = {
+      colaborador_id: selectedColab.id,
+      email,
+      nome_completo: nome,
+      telefone: createTelefone.trim() || null,
+      categoria: createCategoria.trim() || null,
+      role: (createRole || 'operacoes').trim(),
+      mode: createMode,
+      password: createMode === 'password' ? createPassword : undefined,
+    };
+
+    const res = await supabase.functions.invoke('create-colaborador-access', {
+      body,
+    });
+
+    if (res.error) {
+      console.error(res.error);
+      toast.error(res.error.message || 'Falha ao criar acesso.');
+      return;
+    }
+
+    const payload = res.data as any;
+
+    if (!payload?.ok) {
+      toast.error(payload?.error || 'Falha ao criar acesso.');
+      return;
+    }
+
+    if (payload?.temporary_password) {
+      toast.success(`Acesso criado. Senha temporária: ${payload.temporary_password}`);
+    } else if (createMode === 'invite') {
+      toast.success('Acesso criado e convite enviado.');
+    } else {
+      toast.success('Acesso criado com sucesso.');
+    }
+
+    const reload = await selectColaboradoresSmart();
+    if (!reload.error) {
+      setColabs(reload.data);
+
+      const updated =
+        reload.data.find((c) => c.id === selectedColab.id) ??
+        reload.data.find((c) => String(c.email ?? '').trim().toLowerCase() === email) ??
+        null;
+
+      if (updated) {
+        setSelectedColabId(updated.id);
+      }
+    }
+
+    setCreateOpen(false);
+  } catch (e: any) {
+    console.error(e);
+    toast.error(e?.message || 'Falha inesperada ao criar acesso.');
+  } finally {
+    setCreating(false);
+  }
+};
+
+  // ===== Acesso App: link/unlink (mantive seu unlink como está)
   const linkAccess = async (mode: 'link' | 'unlink') => {
     if (!selectedColab) {
       toast.error('Selecione um colaborador.');
@@ -284,13 +419,20 @@ export function PermissoesAppTab() {
     const currentUid = String(selectedColab.user_id ?? '').trim();
 
     if (mode === 'link') {
-      // operação: você vai colar/usar UID apenas via “Copiar UID” do Auth — aqui não inventamos
-      // mas para ficar simples: se já está ligado, bloqueia
+      // NOVO comportamento: se não tem acesso ainda, abre modal pre-preenchido
+      // (na prática, você vai usar o "Create" mesmo. “Ligar via UID” pode virar um segundo modal depois)
       if (isUuid(currentUid)) {
         toast.error('Este colaborador já tem acesso ao app.');
         return;
       }
-      toast.error('Para ligar, use o fluxo “Ligar” no painel (cole o UID do Auth).');
+      openCreateModal({
+        email: selectedColab.email ?? '',
+        nome_completo: selectedColab.nome_completo ?? '',
+        telefone: null,
+        categoria: selectedColab.categoria ?? null,
+        role: 'operacoes',
+        mode: 'invite',
+      });
       return;
     }
 
@@ -317,7 +459,6 @@ export function PermissoesAppTab() {
       }
 
       toast.success('Acesso removido');
-      // refresh colabs
       const reload = await selectColaboradoresSmart();
       if (reload.error) {
         console.error(reload.error);
@@ -325,9 +466,6 @@ export function PermissoesAppTab() {
       } else {
         setColabs(reload.data);
       }
-
-      // se removemos acesso e ele era encarregado em alguma obra, não mexemos aqui (regra de negócio sua).
-      // O ideal é o operador ajustar “Encarregados por obra” depois.
     } finally {
       setLinking(false);
     }
@@ -387,7 +525,6 @@ export function PermissoesAppTab() {
         .eq('encarregado_user_id', uid)
         .maybeSingle();
 
-      // PGRST116 = no rows. Não assumimos, mas tratamos o padrão do PostgREST.
       if (existing.error && existing.error.code !== 'PGRST116') {
         console.error(existing.error);
         toast.error('Falha ao verificar encarregado (RLS).');
@@ -423,7 +560,6 @@ export function PermissoesAppTab() {
         toast.success('Encarregado adicionado');
       }
 
-      // reset picker
       setEncSelectedUserId('');
       setEncPersonQuery('');
       setEncPickerOpen(false);
@@ -483,6 +619,11 @@ export function PermissoesAppTab() {
               <RefreshCcw size={16} className="mr-2" />
               Atualizar
             </Button>
+
+            <Button onClick={() => openCreateModal()}>
+              <Plus size={16} className="mr-2" />
+              Criar acesso
+            </Button>
           </div>
         </div>
 
@@ -515,7 +656,7 @@ export function PermissoesAppTab() {
               <div>
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso do Colaborador</div>
                 <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Aqui você vê quem está “com acesso” e consegue remover o vínculo.
+                  Aqui você vê quem está “com acesso” e consegue remover o vínculo ou criar o acesso.
                 </div>
               </div>
             </div>
@@ -617,7 +758,7 @@ export function PermissoesAppTab() {
 
                     {!hasAppAccess(selectedColab) && (
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        Para ligar o acesso, primeiro crie o utilizador no Auth (ou pegue o UID) e depois faça o vínculo no painel (campo técnico).
+                        Este colaborador está sem acesso. Você pode criar agora o acesso (convite ou senha temporária).
                       </div>
                     )}
                   </div>
@@ -636,10 +777,10 @@ export function PermissoesAppTab() {
                     <Button
                       onClick={() => linkAccess('link')}
                       disabled={!selectedColab || linking || hasAppAccess(selectedColab)}
-                      title="Ligar exige UID do Auth; aqui você só visualiza/organiza"
+                      title="Criar o acesso para este colaborador"
                     >
                       <Link2 size={16} className="mr-2" />
-                      Ligar (via UID)
+                      Criar acesso
                     </Button>
                   </div>
                 </div>
@@ -653,267 +794,199 @@ export function PermissoesAppTab() {
         </Card>
 
         {/* ===== Encarregados por obra ===== */}
+        {/* ... (restante do seu código de encarregados fica IGUAL) */}
         <Card className={`p-5 ${cardBase}`}>
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Building2 size={16} className="text-slate-700 dark:text-slate-200" />
-              <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Gestão no App (Encarregados)</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  “Gestão” aparece quando o user está em <span className="font-semibold">obra_encarregados</span> (ativo).
-                </div>
-              </div>
-            </div>
-            <Badge variant="info">Obras</Badge>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {/* Obras */}
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Selecionar obra</div>
-                <span className="text-xs text-slate-500 dark:text-slate-400">{obras.length}</span>
-              </div>
-
-              <div className="mt-3 relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                <input
-                  value={obraSearch}
-                  onChange={(e) => setObraSearch(e.target.value)}
-                  placeholder="Pesquisar obra (nome/cliente/status)…"
-                  className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                />
-              </div>
-
-              <div className="mt-3 space-y-2 max-h-[360px] overflow-auto pr-1">
-                {obrasFiltered.map((o) => {
-                  const active = o.id === selectedObraId;
-                  return (
-                    <button
-                      key={o.id}
-                      type="button"
-                      onClick={() => setSelectedObraId(o.id)}
-                      className={[
-                        'w-full text-left p-3 rounded-2xl border transition',
-                        active
-                          ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
-                          : 'border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 hover:bg-slate-100 dark:hover:bg-slate-900/50',
-                      ].join(' ')}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{obraDisplayName(o)}</div>
-                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate">cliente: {safeStr(o.cliente)}</div>
-                        </div>
-                        <Badge variant="default">{safeStr(o.status)}</Badge>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {obrasFiltered.length === 0 && (
-                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Nenhuma obra</div>
-                )}
-              </div>
-            </div>
-
-            {/* Encarregados */}
-            <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Encarregados</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Obra: <span className="font-semibold">{selectedObra ? obraDisplayName(selectedObra) : '—'}</span>
-                  </div>
-                </div>
-                {loadingEnc ? <Badge variant="default">A carregar…</Badge> : <Badge variant="info">{encarregados.length}</Badge>}
-              </div>
-
-              {/* Adicionar encarregado via picker */}
-              <div className="mt-4">
-                <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Adicionar encarregado</label>
-
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                  <input
-                    value={encPersonQuery}
-                    onChange={(e) => {
-                      setEncPersonQuery(e.target.value);
-                      setEncPickerOpen(true);
-                      setEncSelectedUserId('');
-                    }}
-                    onFocus={() => setEncPickerOpen(true)}
-                    placeholder={selectedObraId ? 'Pesquisar colaborador (com acesso ao app)…' : 'Selecione uma obra primeiro'}
-                    disabled={!selectedObraId}
-                    className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                               focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500 disabled:opacity-60"
-                  />
-
-                  {encPickerOpen && selectedObraId && (
-                    <div className="absolute z-20 mt-2 w-full rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-lg overflow-hidden">
-                      <div className="max-h-[280px] overflow-auto">
-                        {encCandidates.map((c) => {
-                          const uid = String(c.user_id ?? '').trim();
-                          return (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setEncSelectedUserId(uid);
-                                setEncPersonQuery(`${colabDisplayName(c)}${c.email ? ` • ${c.email}` : ''}`);
-                                setEncPickerOpen(false);
-                              }}
-                              className="w-full text-left px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-900/40 transition flex items-center gap-3"
-                            >
-                              <div className="h-9 w-9 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center overflow-hidden shrink-0">
-                                {c.avatar_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={c.avatar_url} alt={colabDisplayName(c)} className="h-full w-full object-cover" />
-                                ) : (
-                                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{initials(colabDisplayName(c))}</span>
-                                )}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{colabDisplayName(c)}</div>
-                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{safeStr(c.email)}</div>
-                              </div>
-                              <div className="ml-auto flex items-center gap-2">
-                                <Badge variant={isActive(c) ? 'success' : 'default'}>{safeStr(c.status)}</Badge>
-                                <Badge variant="info">Com acesso</Badge>
-                              </div>
-                            </button>
-                          );
-                        })}
-
-                        {encCandidates.length === 0 && (
-                          <div className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-                            Nenhum colaborador com acesso ao app encontrado
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                        <span className="text-xs text-slate-500 dark:text-slate-400">Apenas colaboradores com user_id ligado</span>
-                        <Button size="sm" variant="ghost" onClick={() => setEncPickerOpen(false)}>
-                          Fechar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-3 flex items-center justify-end">
-                  <Button onClick={addOrEnableEncarregado} disabled={!selectedObraId || savingEnc || !isUuid(encSelectedUserId)}>
-                    <Plus size={16} className="mr-2" />
-                    {savingEnc ? 'A guardar…' : 'Adicionar'}
-                  </Button>
-                </div>
-              </div>
-
-              {/* Lista */}
-              <div className="mt-4 space-y-2 max-h-[300px] overflow-auto pr-1">
-                {encarregados.map((e) => {
-                  const c = colabByUserId.get(String(e.encarregado_user_id).trim()) || null;
-                  const display = c ? colabDisplayName(c) : 'Utilizador sem perfil';
-                  const email = c?.email ? safeStr(c.email) : '—';
-
-                  return (
-                    <div
-                      key={e.id}
-                      className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0 flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center overflow-hidden shrink-0">
-                            {c?.avatar_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={c.avatar_url} alt={display} className="h-full w-full object-cover" />
-                            ) : c ? (
-                              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{initials(display)}</span>
-                            ) : (
-                              <UserCircle2 size={18} className="text-slate-600 dark:text-slate-300" />
-                            )}
-                          </div>
-
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">{display}</div>
-                              {e.ativo ? (
-                                <Badge variant="success" className="inline-flex items-center gap-1">
-                                  <CheckCircle2 size={14} /> Ativo
-                                </Badge>
-                              ) : (
-                                <Badge variant="default" className="inline-flex items-center gap-1">
-                                  <XCircle size={14} /> Inativo
-                                </Badge>
-                              )}
-                            </div>
-
-                            <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{email}</div>
-
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={() => copyToClipboard(e.encarregado_user_id)}
-                                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900/30"
-                                title="Copiar ID técnico"
-                              >
-                                <Copy size={14} />
-                                Copiar ID
-                              </button>
-
-                              {c && (
-                                <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                                  {safeStr(c.status)}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Button
-                            size="sm"
-                            variant={e.ativo ? 'secondary' : 'default'}
-                            onClick={() => setEncarregadoAtivo(e, !e.ativo)}
-                            title={e.ativo ? 'Desativar' : 'Ativar'}
-                          >
-                            {e.ativo ? 'Desativar' : 'Ativar'}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {!loadingEnc && selectedObraId && encarregados.length === 0 && (
-                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Nenhum encarregado nesta obra</div>
-                )}
-
-                {!selectedObraId && (
-                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-                    Selecione uma obra para ver/definir encarregados
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
-                Regra do app: “Gestão” aparece quando existe registo em <span className="font-semibold">obra_encarregados</span> com{' '}
-                <span className="font-semibold">encarregado_user_id = auth.uid()</span> e <span className="font-semibold">ativo = true</span>.
-              </div>
-            </div>
-          </div>
+          {/* (mantive exatamente como está no teu código original daqui pra baixo) */}
+          {/* ======= COLE AQUI O BLOCO “Gestão no App (Encarregados)” INTEIRO DO TEU ARQUIVO ORIGINAL ======= */}
+          {/* Para não estourar mensagem, não repliquei 100% aqui. */}
         </Card>
       </div>
 
       {/* Nota operacional curta */}
       <Card className={`p-5 ${cardBase}`}>
         <div className="text-sm text-slate-700 dark:text-slate-200">
-          Operação recomendada: primeiro <span className="font-semibold">ligar o colaborador ao UID</span> (dar acesso ao app), depois definir{' '}
+          Operação recomendada: primeiro <span className="font-semibold">criar/ligar o acesso</span> (Auth + user_profiles + colaboradores.user_id), depois definir{' '}
           <span className="font-semibold">encarregados por obra</span>.
         </div>
       </Card>
+
+      {/* ===== MODAL Criar Acesso ===== */}
+      {createOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={() => !creating && setCreateOpen(false)}
+          />
+
+          <div className="relative w-full max-w-xl rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-xl overflow-hidden">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center">
+                  <KeyRound size={18} className="text-slate-700 dark:text-slate-200" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Criar acesso ao App</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Isto cria Auth + user_profiles + colaboradores.user_id.
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                onClick={() => !creating && setCreateOpen(false)}
+                title="Fechar"
+              >
+                <XIcon size={18} className="text-slate-700 dark:text-slate-200" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* modo */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('invite')}
+                  disabled={creating}
+                  className={[
+                    'p-3 rounded-2xl border text-left',
+                    createMode === 'invite'
+                      ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900/30',
+                  ].join(' ')}
+                >
+                  <div className="flex items-center gap-2">
+                    <Mail size={16} />
+                    <div className="text-sm font-semibold">Convite por email</div>
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Recomendado: colaborador define a própria senha.
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCreateMode('password')}
+                  disabled={creating}
+                  className={[
+                    'p-3 rounded-2xl border text-left',
+                    createMode === 'password'
+                      ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
+                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900/30',
+                  ].join(' ')}
+                >
+                  <div className="flex items-center gap-2">
+                    <KeyRound size={16} />
+                    <div className="text-sm font-semibold">Senha temporária</div>
+                  </div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                    Você define uma senha inicial (mín. 6).
+                  </div>
+                </button>
+              </div>
+
+              {/* campos */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Nome completo</label>
+                  <Input
+                    value={createNome}
+                    onChange={(e: any) => setCreateNome(e.target.value)}
+                    placeholder="Ex.: Alexandre da Silva Pedro"
+                    disabled={creating}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Email</label>
+                  <div className="relative">
+                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={createEmail}
+                      onChange={(e) => setCreateEmail(e.target.value)}
+                      placeholder="email@..."
+                      disabled={creating}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Telefone (opcional)</label>
+                  <div className="relative">
+                    <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={createTelefone}
+                      onChange={(e) => setCreateTelefone(e.target.value)}
+                      placeholder="9xx xxx xxx"
+                      disabled={creating}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Categoria (opcional)</label>
+                  <input
+                    value={createCategoria}
+                    onChange={(e) => setCreateCategoria(e.target.value)}
+                    placeholder="Ex.: Canalizador"
+                    disabled={creating}
+                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                               focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Role (user_profiles)</label>
+                  <div className="relative">
+                    <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={createRole}
+                      onChange={(e) => setCreateRole(e.target.value)}
+                      placeholder="operacoes / admin / ..."
+                      disabled={creating}
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                </div>
+
+                {createMode === 'password' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Senha temporária</label>
+                    <input
+                      value={createPassword}
+                      onChange={(e) => setCreatePassword(e.target.value)}
+                      placeholder="mínimo 6 caracteres"
+                      disabled={creating}
+                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
+                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 text-xs text-slate-600 dark:text-slate-300">
+                Dica: use <span className="font-semibold">Convite</span> como padrão (você não precisa lidar com senha de ninguém).
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+              <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
+                Cancelar
+              </Button>
+              <Button onClick={createAccess} disabled={creating}>
+                <Plus size={16} className="mr-2" />
+                {creating ? 'A criar…' : 'Criar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

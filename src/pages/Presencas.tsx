@@ -72,7 +72,7 @@ type PresencaExistente = {
   total_horas: number;
 };
 
-const BRAND = { blue: '#0B4F8A' };
+const BRAND = { blue: '#1F3348' };
 const HORAS_DIA = 8;
 
 // Regras almoço (funcional):
@@ -317,7 +317,7 @@ function SegmentedTabs(props: {
 }
 
 function KpiCard(props: { icon: React.ReactNode; label: string; value: React.ReactNode; hint?: string; tone?: 'default' | 'warn' }) {
-  const bg = props.tone === 'warn' ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-blue-50 dark:bg-blue-500/10';
+  const bg = props.tone === 'warn' ? 'bg-amber-50 dark:bg-amber-500/10' : 'bg-blue-50 dark:bg-[#1F3348]/10';
   const ring = props.tone === 'warn' ? 'border-amber-200 dark:border-amber-500/25' : 'border-slate-200 dark:border-slate-800/70';
 
   return (
@@ -1216,9 +1216,9 @@ export function Presencas() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900 placeholder:text-slate-400
-                               focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                               focus:outline-none focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent
                                dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
-                               dark:focus:ring-[#66A7E6]/25"
+                               dark:focus:ring-[#7EA3C7]/25"
                   />
                 </div>
 
@@ -1563,7 +1563,7 @@ export function Presencas() {
                     onChange={(e) => setRegistrarSearch(e.target.value)}
                     placeholder="Pesquisar na obra..."
                     className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-sm text-slate-900
-                               focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                               focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent
                                dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
                 </div>
@@ -1583,14 +1583,14 @@ export function Presencas() {
                         onClick={() => toggleColaborador(colab.id)}
                         className={`p-3 rounded-xl border-2 cursor-pointer transition ${
                           isSelected
-                            ? 'border-[#0B4F8A] bg-blue-50 dark:bg-blue-500/10'
+  ? 'border-[#1F3348] bg-[#1F3348]/10 dark:bg-[#1F3348]/20'
                             : 'border-slate-200 hover:border-slate-300 dark:border-slate-800 dark:hover:border-slate-700 dark:bg-slate-950/15'
                         }`}
                       >
                         <div className="flex items-center gap-3">
                           <div
                             className={`h-5 w-5 rounded border-2 flex items-center justify-center ${
-                              isSelected ? 'border-[#0B4F8A] bg-[#0B4F8A]' : 'border-slate-300 dark:border-slate-700'
+                              isSelected ? 'border-[#1F3348] bg-[#1F3348]' : 'border-slate-300 dark:border-slate-700'
                             }`}
                           >
                             {isSelected && <CheckCircle size={14} className="text-white" />}

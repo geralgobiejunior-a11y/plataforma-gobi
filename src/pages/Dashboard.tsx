@@ -48,9 +48,9 @@ type HorasSemanaPoint = { semana: string; horas: number };
 type CustoObraPoint = { nome: string; custo: number };
 
 const BRAND = {
-  blue: '#0B4F8A',
-  blueDark: '#083B68',
-  orange: '#F5A623',
+  blue: '#1F3348',
+  blueDark: '#2C4E6B',
+  orange: '#F59A23',
 };
 
 const PIE_COLORS = [BRAND.blue, BRAND.orange, '#10b981', '#ef4444', '#8b5cf6'];
@@ -125,7 +125,6 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
   const [horasPorSemana, setHorasPorSemana] = useState<HorasSemanaPoint[]>([]);
   const [custoPorObra, setCustoPorObra] = useState<CustoObraPoint[]>([]);
 
-  // Tabs do painel mobile
   const [mobileTab, setMobileTab] = useState<MobilePanelTab>('acoes');
 
   useEffect(() => {
@@ -248,9 +247,9 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         value: stats.colaboradoresAtivos,
         sub: `${stats.colaboradoresInativos} inativos`,
         icon: Users,
-        badgeBg: 'bg-[#0B4F8A]/10 dark:bg-[#0B4F8A]/20',
-        iconColor: 'text-[#0B4F8A] dark:text-[#66A7E6]',
-        accent: 'from-[#0B4F8A]/14 to-transparent dark:from-[#0B4F8A]/20 dark:to-transparent',
+        badgeBg: 'bg-[#1F3348]/10 dark:bg-[#1F3348]/20',
+        iconColor: 'text-[#1F3348] dark:text-[#7EA3C7]',
+        accent: 'from-[#1F3348]/14 to-transparent dark:from-[#1F3348]/20 dark:to-transparent',
       },
       {
         label: 'Obras ativas',
@@ -275,9 +274,9 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         value: `${stats.horasSemana}h`,
         sub: `Custo: ${formatCurrencyEUR(stats.custoAcumulado)}`,
         icon: Clock,
-        badgeBg: 'bg-[#F5A623]/15 dark:bg-[#F5A623]/20',
+        badgeBg: 'bg-[#F59A23]/15 dark:bg-[#F59A23]/20',
         iconColor: 'text-[#B86F00] dark:text-[#F7C56B]',
-        accent: 'from-[#F5A623]/14 to-transparent dark:from-[#F5A623]/18 dark:to-transparent',
+        accent: 'from-[#F59A23]/14 to-transparent dark:from-[#F59A23]/18 dark:to-transparent',
       },
     ],
     [
@@ -292,12 +291,10 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
     ]
   );
 
-  // Variáveis de cor para Recharts (evita “branco estourado” no dark)
   const chartVars =
     ' [--chart-grid:rgb(226_232_240)] [--chart-tick:rgb(100_116_139)] ' +
     ' dark:[--chart-grid:rgb(51_65_85)] dark:[--chart-tick:rgb(148_163_184)]';
 
-  // Componente: botão tab do painel mobile
   const TabBtn = ({
     id,
     label,
@@ -315,7 +312,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         className={[
           'inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition',
           active
-            ? 'bg-[#0B4F8A] text-white shadow-sm'
+            ? 'bg-[#1F3348] text-white shadow-sm'
             : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/70 dark:text-slate-200 dark:hover:bg-slate-800',
         ].join(' ')}
       >
@@ -338,12 +335,14 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
       type="button"
       onClick={onClick}
       className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm transition
-                 hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/40
+                 hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1F3348]/40
                  dark:border-slate-800/70 dark:bg-slate-900/40 dark:shadow-black/30"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="h-10 w-10 rounded-xl bg-white/70 flex items-center justify-center ring-1 ring-black/5
-                        dark:bg-slate-900/60 dark:ring-white/10">
+        <div
+          className="h-10 w-10 rounded-xl bg-white/70 flex items-center justify-center ring-1 ring-black/5
+                        dark:bg-slate-900/60 dark:ring-white/10"
+        >
           {icon}
         </div>
         <ArrowUpRight size={18} className="text-slate-400 dark:text-slate-500" />
@@ -356,14 +355,13 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
     return (
       <div className="space-y-6">
         <div
-          className="rounded-3xl border border-slate-200 bg-gradient-to-br from-[#0B4F8A] to-[#083B68] p-6 shadow-sm
+          className="rounded-3xl border border-slate-200 bg-gradient-to-br from-[#1F3348] to-[#2C4E6B] p-6 shadow-sm
                      dark:border-slate-800/70 dark:shadow-black/30"
         >
           <div className="h-6 w-48 rounded bg-white/20 animate-pulse" />
           <div className="mt-3 h-4 w-80 rounded bg-white/15 animate-pulse" />
         </div>
 
-        {/* Skeleton KPIs (já em 2 colunas no mobile) */}
         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
           {Array.from({ length: 4 }).map((_, i) => (
             <div
@@ -388,19 +386,18 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
 
   return (
     <div className="space-y-6">
-      {/* Hero / Header */}
       <div
-        className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-[#0B4F8A] to-[#083B68] p-5 sm:p-6 shadow-sm
+        className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-[#1F3348] to-[#2C4E6B] p-5 sm:p-6 shadow-sm
                    dark:border-slate-800/70 dark:shadow-black/35"
       >
         <div className="absolute inset-0 opacity-30">
-          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-[#F5A623]/30 blur-3xl" />
+          <div className="absolute -top-24 -right-24 h-72 w-72 rounded-full bg-[#F59A23]/30 blur-3xl" />
           <div className="absolute -bottom-28 -left-28 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
         </div>
 
         <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-white/70 text-sm">Sistema Diâmetro • Gestão de Obras & Colaboradores</p>
+            <p className="text-white/70 text-sm">Sistema Gobi & Júnior • Gestão de Obras & Colaboradores</p>
             <h1 className="mt-2 text-2xl md:text-3xl font-semibold tracking-tight text-white">
               Dashboard operacional
             </h1>
@@ -421,7 +418,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
             </Button>
 
             <Button
-              className="w-full sm:w-auto bg-[#F5A623] hover:bg-[#E79A17] text-slate-900"
+              className="w-full sm:w-auto bg-[#F59A23] hover:bg-[#E78D1D] text-slate-900"
               onClick={onNovaObra}
             >
               <Plus size={16} className="mr-2" />
@@ -431,7 +428,6 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         </div>
       </div>
 
-      {/* KPIs — 2 colunas no mobile (2 em cima + 2 em baixo) */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         {kpis.map((k) => {
           const Icon = k.icon;
@@ -467,7 +463,6 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         })}
       </div>
 
-      {/* Alertas documentos */}
       {totalAlertasDocs > 0 && (
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <CardContent className="pt-6">
@@ -520,7 +515,6 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         </Card>
       )}
 
-      {/* Painel mobile (tabs) — inspirado nos teus prints */}
       <Card className="sm:hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
         <CardHeader className="pb-3">
           <div className="text-center">
@@ -538,7 +532,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
             <div className="grid grid-cols-2 gap-3">
               <ActionTile
                 title="Pedido"
-                icon={<ClipboardList size={18} className="text-[#0B4F8A]" />}
+                icon={<ClipboardList size={18} className="text-[#1F3348]" />}
                 onClick={onNovaObra}
               />
               <ActionTile
@@ -568,7 +562,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
 
               <div className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-800/70 dark:bg-slate-900/30">
                 <div className="flex items-center gap-2 px-1 pb-2">
-                  <TrendingUp size={16} className="text-[#0B4F8A] dark:text-[#66A7E6]" />
+                  <TrendingUp size={16} className="text-[#1F3348] dark:text-[#7EA3C7]" />
                   <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Horas (5 semanas)</div>
                 </div>
 
@@ -607,7 +601,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
                 {custoPorObra.length > 0 ? (
                   <>
                     <div className="flex items-center gap-2 px-1 pb-2">
-                      <Euro size={16} className="text-[#F5A623]" />
+                      <Euro size={16} className="text-[#F59A23]" />
                       <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                         Top custos por obra
                       </div>
@@ -681,17 +675,16 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         </CardContent>
       </Card>
 
-      {/* Charts (desktop/tablet) — escondido no mobile, porque o painel acima já cobre */}
       <div className="hidden sm:grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <CardHeader className="pb-0">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <div
-                  className="h-9 w-9 rounded-xl bg-[#0B4F8A]/10 flex items-center justify-center ring-1 ring-black/5
-                             dark:bg-[#0B4F8A]/20 dark:ring-white/10"
+                  className="h-9 w-9 rounded-xl bg-[#1F3348]/10 flex items-center justify-center ring-1 ring-black/5
+                             dark:bg-[#1F3348]/20 dark:ring-white/10"
                 >
-                  <TrendingUp size={18} className="text-[#0B4F8A] dark:text-[#66A7E6]" />
+                  <TrendingUp size={18} className="text-[#1F3348] dark:text-[#7EA3C7]" />
                 </div>
                 <div>
                   <div className="font-semibold text-slate-900 dark:text-slate-100">Horas trabalhadas</div>
@@ -813,7 +806,6 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
         </Card>
       </div>
 
-      {/* Ações rápidas (desktop/tablet) — no mobile você já tem no painel */}
       <Card className="hidden sm:block rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between gap-3">
@@ -825,7 +817,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
             </div>
 
             <div className="hidden md:flex items-center gap-2">
-              <Button size="sm" className="bg-[#0B4F8A] hover:bg-[#083B68]" onClick={onNovaObra}>
+              <Button size="sm" className="bg-[#1F3348] hover:bg-[#2C4E6B]" onClick={onNovaObra}>
                 <Plus size={16} className="mr-2" />
                 Nova obra
               </Button>
@@ -840,7 +832,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
               </Button>
               <Button
                 size="sm"
-                className="bg-[#F5A623] hover:bg-[#E79A17] text-slate-900"
+                className="bg-[#F59A23] hover:bg-[#E78D1D] text-slate-900"
                 onClick={() => onNavigate?.('presencas')}
               >
                 <Plus size={16} className="mr-2" />
@@ -854,17 +846,17 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <button
               className="group text-left rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition
-                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/40
+                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1F3348]/40
                          dark:border-slate-800/70 dark:from-slate-900/70 dark:to-slate-900/40 dark:shadow-black/30 dark:hover:shadow-black/40"
               type="button"
               onClick={onNovaObra}
             >
               <div className="flex items-start justify-between gap-3">
                 <div
-                  className="h-10 w-10 rounded-xl bg-[#0B4F8A]/10 flex items-center justify-center ring-1 ring-black/5
-                             dark:bg-[#0B4F8A]/20 dark:ring-white/10"
+                  className="h-10 w-10 rounded-xl bg-[#1F3348]/10 flex items-center justify-center ring-1 ring-black/5
+                             dark:bg-[#1F3348]/20 dark:ring-white/10"
                 >
-                  <ClipboardList size={18} className="text-[#0B4F8A] dark:text-[#66A7E6]" />
+                  <ClipboardList size={18} className="text-[#1F3348] dark:text-[#7EA3C7]" />
                 </div>
                 <ArrowUpRight
                   className="text-slate-400 group-hover:text-slate-700 dark:text-slate-500 dark:group-hover:text-slate-300"
@@ -879,15 +871,15 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
 
             <button
               className="group text-left rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition
-                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/40
+                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1F3348]/40
                          dark:border-slate-800/70 dark:from-slate-900/70 dark:to-slate-900/40 dark:shadow-black/30 dark:hover:shadow-black/40"
               type="button"
               onClick={onNovoColaborador}
             >
               <div className="flex items-start justify-between gap-3">
                 <div
-                  className="h-10 w-10 rounded-xl bg-[#F5A623]/15 flex items-center justify-center ring-1 ring-black/5
-                             dark:bg-[#F5A623]/20 dark:ring-white/10"
+                  className="h-10 w-10 rounded-xl bg-[#F59A23]/15 flex items-center justify-center ring-1 ring-black/5
+                             dark:bg-[#F59A23]/20 dark:ring-white/10"
                 >
                   <UserPlus size={18} className="text-[#B86F00] dark:text-[#F7C56B]" />
                 </div>
@@ -904,7 +896,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
 
             <button
               className="group text-left rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition
-                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/40
+                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1F3348]/40
                          dark:border-slate-800/70 dark:from-slate-900/70 dark:to-slate-900/40 dark:shadow-black/30 dark:hover:shadow-black/40"
               type="button"
               onClick={() => onNavigate?.('presencas')}
@@ -929,7 +921,7 @@ export default function Dashboard({ onNavigate, onNovaObra, onNovoColaborador }:
 
             <button
               className="group text-left rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm transition
-                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#0B4F8A]/40
+                         hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#1F3348]/40
                          dark:border-slate-800/70 dark:from-slate-900/70 dark:to-slate-900/40 dark:shadow-black/30 dark:hover:shadow-black/40"
               type="button"
               onClick={() => onNavigate?.('documentos')}

@@ -22,12 +22,10 @@ export function Layout({
 }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Fecha menu ao trocar de página (garante UX boa no mobile)
   useEffect(() => {
     setSidebarOpen(false);
   }, [currentPage]);
 
-  // ESC fecha + trava scroll no mobile quando aberto
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSidebarOpen(false);
@@ -35,7 +33,7 @@ export function Layout({
 
     if (sidebarOpen) {
       document.addEventListener("keydown", onKeyDown);
-      // trava scroll da página quando o drawer está aberto
+
       const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";
 
@@ -57,14 +55,14 @@ export function Layout({
         [--sidebar-w:256px]
       "
     >
-      {/* Background premium (discreto) */}
+      {/* Background premium */}
       <div className="pointer-events-none fixed inset-0 -z-10">
-        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-[#F5A623]/10 dark:bg-[#F5A623]/5 blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-[#0B4F8A]/10 dark:bg-[#0B4F8A]/5 blur-3xl" />
-        <div className="absolute inset-0 bg-gradient-to-b from-white/40 dark:from-slate-950/40 to-transparent" />
+        <div className="absolute -top-32 -right-32 h-96 w-96 rounded-full bg-[#F59A23]/10 dark:bg-[#F59A23]/5 blur-3xl" />
+        <div className="absolute -bottom-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-[#1F3348]/10 dark:bg-[#1F3348]/5 blur-3xl" />
+        <div className="absolute top-1/3 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[#2C4E6B]/8 dark:bg-[#2C4E6B]/5 blur-3xl" />
+        <div className="absolute inset-0 bg-gradient-to-b from-white/50 dark:from-slate-950/50 to-transparent" />
       </div>
 
-      {/* Sidebar (drawer no mobile, fixo no desktop) */}
       <Sidebar
         currentPage={currentPage}
         onNavigate={onNavigate}
@@ -72,10 +70,9 @@ export function Layout({
         onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Overlay mobile */}
       {sidebarOpen && (
         <button
-          className="fixed inset-0 z-40 lg:hidden bg-black/45 backdrop-blur-[1px]"
+          className="fixed inset-0 z-40 lg:hidden bg-[#1F3348]/45 backdrop-blur-[2px]"
           onClick={() => setSidebarOpen(false)}
           aria-label="Fechar menu"
         />

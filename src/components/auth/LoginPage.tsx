@@ -18,6 +18,7 @@ import {
   X,
   Phone,
   MessageCircle,
+  Briefcase,
 } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useLanguage, type Language } from "../../contexts/LanguageContext";
@@ -27,9 +28,8 @@ import { AUTH_STORAGE_KEY, AUTH_STORAGE_PREF_KEY } from "../../lib/supabase";
 
 type LoginMode = "operacoes" | "admin";
 
-// Preferências do login
-const LOGIN_REMEMBER_KEY = "login-remember"; // "1" | "0"
-const LOGIN_EMAIL_KEY = "login-email"; // email salvo
+const LOGIN_REMEMBER_KEY = "login-remember";
+const LOGIN_EMAIL_KEY = "login-email";
 
 export function LoginPage() {
   const { signIn, authError, clearAuthError } = useAuth();
@@ -42,31 +42,26 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // erro local (UX imediata)
   const [error, setError] = useState("");
-
-  // ✅ lembrar-me (funcional)
   const [rememberMe, setRememberMe] = useState(true);
-
-  // ✅ modal “esqueceu a palavra-passe”
   const [supportOpen, setSupportOpen] = useState(false);
 
   const brand = useMemo(
     () => ({
-      blue: "#0B4F8A",
-      blue2: "#094070",
-      orange: "#F5A623",
+      blue: "#0B3A68",
+      blue2: "#072B4A",
+      orange: "#F3921B",
+      orange2: "#E67E0D",
+      dark: "#061726",
+      white: "#FFFFFF",
     }),
     []
   );
 
-  // manter ref sincronizada
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
 
-  // carregar preferências (remember + email)
   useEffect(() => {
     try {
       const pref = localStorage.getItem(LOGIN_REMEMBER_KEY);
@@ -78,7 +73,6 @@ export function LoginPage() {
     } catch {}
   }, []);
 
-  // se AuthContext setar authError, refletir no estado local (opcional)
   useEffect(() => {
     if (authError) setError(authError);
   }, [authError]);
@@ -99,20 +93,20 @@ export function LoginPage() {
 
   const applyRememberPreference = (nextRemember: boolean, nextEmail: string) => {
     try {
-      // 1) define onde o Supabase vai persistir a sessão
-      //    - true  => localStorage (persistente)
-      //    - false => sessionStorage (some ao fechar o browser)
-      localStorage.setItem(AUTH_STORAGE_PREF_KEY, nextRemember ? "local" : "session");
+      localStorage.setItem(
+        AUTH_STORAGE_PREF_KEY,
+        nextRemember ? "local" : "session"
+      );
 
-      // 2) salva preferência do checkbox
       localStorage.setItem(LOGIN_REMEMBER_KEY, nextRemember ? "1" : "0");
 
-      // 3) salva/remover email
       const cleanEmail = (nextEmail || "").trim();
-      if (nextRemember && cleanEmail) localStorage.setItem(LOGIN_EMAIL_KEY, cleanEmail);
-      else localStorage.removeItem(LOGIN_EMAIL_KEY);
+      if (nextRemember && cleanEmail) {
+        localStorage.setItem(LOGIN_EMAIL_KEY, cleanEmail);
+      } else {
+        localStorage.removeItem(LOGIN_EMAIL_KEY);
+      }
 
-      // 4) evita “sessão fantasma” (limpa APENAS o storage oposto)
       if (nextRemember) {
         sessionStorage.removeItem(AUTH_STORAGE_KEY);
       } else {
@@ -125,9 +119,7 @@ export function LoginPage() {
     e.preventDefault();
     clearAllErrors();
 
-    // ✅ importante: define storage ANTES do signIn (token será salvo no lugar correto)
     applyRememberPreference(rememberMe, email);
-
     setSubmitting(true);
 
     try {
@@ -136,7 +128,6 @@ export function LoginPage() {
 
       const userData = await signIn(email.trim(), password, selectedMode);
 
-      // notificação é opcional; se falhar não deve “mascarar” login
       try {
         await createNotification(
           userData.id,
@@ -159,7 +150,7 @@ export function LoginPage() {
     <div
       className="min-h-screen relative overflow-hidden"
       style={{
-        background: `radial-gradient(1200px 600px at 15% 10%, ${brand.blue} 0%, ${brand.blue2} 45%, #071a2a 100%)`,
+        background: `radial-gradient(1200px 600px at 15% 10%, ${brand.blue} 0%, ${brand.blue2} 42%, ${brand.dark} 100%)`,
       }}
     >
       <div className="absolute top-5 right-5 z-20">
@@ -167,11 +158,11 @@ export function LoginPage() {
       </div>
 
       <div
-        className="pointer-events-none absolute -top-24 -left-24 h-80 w-80 rounded-full blur-3xl opacity-25"
+        className="pointer-events-none absolute -top-24 -left-24 h-80 w-80 rounded-full blur-3xl opacity-20"
         style={{ backgroundColor: brand.orange }}
       />
       <div
-        className="pointer-events-none absolute -bottom-40 -right-40 h-[28rem] w-[28rem] rounded-full blur-3xl opacity-20"
+        className="pointer-events-none absolute -bottom-40 -right-40 h-[28rem] w-[28rem] rounded-full blur-3xl opacity-15"
         style={{ backgroundColor: brand.blue }}
       />
 
@@ -183,7 +174,7 @@ export function LoginPage() {
               className="absolute inset-0"
               style={{
                 backgroundImage:
-                  "linear-gradient(180deg, rgba(11,79,138,0.72), rgba(7,26,42,0.90))",
+                  "linear-gradient(180deg, rgba(11,58,104,0.74), rgba(6,23,38,0.92))",
                 backgroundSize: "cover",
                 backgroundPosition: "center",
               }}
@@ -192,42 +183,45 @@ export function LoginPage() {
             <div className="relative z-10 p-10 flex flex-col justify-between">
               <div>
                 <div className="inline-flex items-center gap-3">
-                  <div
-                    className="h-10 w-1 rounded-full"
-                    style={{ backgroundColor: brand.orange }}
+                  <img
+                    src="/logo-gobi.png"
+                    alt="Gobi & Júnior"
+                    className="h-11 w-auto object-contain"
+                    draggable={false}
                   />
                   <div>
                     <p className="text-white font-semibold text-base leading-none">
-                      {t("auth.hero.brandTitle")}
+                      Gobi & Júnior
                     </p>
                     <p className="text-white/70 text-sm">
-                      {t("auth.hero.brandSubtitle")}
+                      Construção • Coordenação • Execução
                     </p>
                   </div>
                 </div>
 
                 <h2 className="mt-10 text-white text-3xl font-bold leading-tight">
-                  {t("auth.hero.headlineA")} <br />
-                  <span style={{ color: brand.orange }}>
-                    {t("auth.hero.headlineB")}
-                  </span>
+                  Gestão operacional com{" "}
+                  <span style={{ color: brand.orange }}>rigor</span> e{" "}
+                  <span style={{ color: brand.orange }}>organização</span>
                 </h2>
 
                 <p className="mt-4 text-white/80 max-w-md">
-                  {t("auth.hero.description")}
+                  Aceda ao ambiente interno da Gobi & Júnior para acompanhar
+                  equipas, operações, obras e processos administrativos com mais
+                  controlo e clareza.
                 </p>
               </div>
 
               <div className="grid gap-3">
                 <FeatureRow
                   icon={<ShieldCheck className="h-5 w-5" />}
-                  title={t("auth.hero.feature1.title")}
-                  desc={t("auth.hero.feature1.desc")}
+                  title="Acesso seguro"
+                  desc="Entrada protegida para operação e administração."
                 />
                 <FeatureRow
-                  icon={<Lock className="h-5 w-5" />}
-                  title={t("auth.hero.feature2.title")}
-                  desc={t("auth.hero.feature2.desc")}
+                  icon={<Briefcase className="h-5 w-5" />}
+                  title="Fluxo profissional"
+                  desc="Organização interna alinhada à identidade da Gobi."
                 />
               </div>
             </div>
@@ -235,7 +229,7 @@ export function LoginPage() {
             <div
               className="absolute top-0 left-0 right-0 h-1"
               style={{
-                background: `linear-gradient(90deg, ${brand.blue} 0%, ${brand.blue} 60%, ${brand.orange} 100%)`,
+                background: `linear-gradient(90deg, ${brand.blue} 0%, ${brand.blue2} 58%, ${brand.orange} 100%)`,
               }}
             />
           </div>
@@ -245,7 +239,7 @@ export function LoginPage() {
             <div
               className="h-1 w-full"
               style={{
-                background: `linear-gradient(90deg, ${brand.blue} 0%, ${brand.blue} 65%, ${brand.orange} 100%)`,
+                background: `linear-gradient(90deg, ${brand.blue} 0%, ${brand.blue2} 58%, ${brand.orange} 100%)`,
               }}
             />
 
@@ -253,17 +247,19 @@ export function LoginPage() {
               <div className="flex items-start justify-between gap-4 mb-6">
                 <div className="flex items-start gap-4">
                   <img
-                    src="/logo-diametro.png"
-                    alt="Diâmetro"
+                    src="/logo-gobi.png"
+                    alt="Gobi & Júnior"
                     className="h-12 sm:h-14 w-auto object-contain"
                     draggable={false}
                   />
 
                   <div>
                     <h1 className="text-xl sm:text-2xl font-bold text-slate-900">
-                      {t("auth.welcome")}
+                      Bem-vindo
                     </h1>
-                    <p className="text-sm text-slate-500">{t("auth.subtitle")}</p>
+                    <p className="text-sm text-slate-500">
+                      Plataforma interna Gobi & Júnior
+                    </p>
                   </div>
                 </div>
               </div>
@@ -279,8 +275,13 @@ export function LoginPage() {
                         ? "bg-white shadow text-slate-900"
                         : "text-slate-600 hover:text-slate-800",
                     ].join(" ")}
+                    style={
+                      mode === "operacoes"
+                        ? { boxShadow: "0 4px 14px rgba(11,58,104,0.10)" }
+                        : undefined
+                    }
                   >
-                    {t("auth.mode.operacoes")}
+                    Operações
                   </button>
 
                   <button
@@ -292,19 +293,23 @@ export function LoginPage() {
                         ? "bg-white shadow text-slate-900"
                         : "text-slate-600 hover:text-slate-800",
                     ].join(" ")}
+                    style={
+                      mode === "admin"
+                        ? { boxShadow: "0 4px 14px rgba(11,58,104,0.10)" }
+                        : undefined
+                    }
                   >
-                    {t("auth.mode.admin")}
+                    Administração
                   </button>
                 </div>
 
                 {mode === "admin" ? (
                   <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-                    {t("auth.mode.adminNotice")}
+                    Acesso reservado a utilizadores com permissões administrativas.
                   </div>
                 ) : null}
               </div>
 
-              {/* ✅ Error robusto */}
               {visibleError ? (
                 <div className="mt-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                   {visibleError}
@@ -314,7 +319,7 @@ export function LoginPage() {
               <form onSubmit={handleSubmit} className="mt-6 space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    {t("auth.email")}
+                    Email
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -329,12 +334,12 @@ export function LoginPage() {
                         clearAllErrors();
                         if (rememberMe) applyRememberPreference(true, nextEmail);
                       }}
-                      placeholder={t("auth.emailPlaceholder")}
+                      placeholder="Introduza o seu email"
                       autoComplete="email"
                       required
-                      className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 text-slate-900 placeholder:text-slate-400 focus:outline-none transition"
                       onFocus={(e) => {
-                        e.currentTarget.style.boxShadow = `0 0 0 3px rgba(11,79,138,0.18)`;
+                        e.currentTarget.style.boxShadow = `0 0 0 3px rgba(11,58,104,0.16)`;
                         e.currentTarget.style.borderColor = brand.blue;
                       }}
                       onBlur={(e) => {
@@ -347,7 +352,7 @@ export function LoginPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    {t("auth.password")}
+                    Palavra-passe
                   </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -361,12 +366,12 @@ export function LoginPage() {
                         setPassword(e.target.value);
                         clearAllErrors();
                       }}
-                      placeholder={t("auth.passwordPlaceholder")}
+                      placeholder="Introduza a sua palavra-passe"
                       autoComplete="current-password"
                       required
-                      className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 pr-12 text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-11 py-3 pr-12 text-slate-900 placeholder:text-slate-400 focus:outline-none transition"
                       onFocus={(e) => {
-                        e.currentTarget.style.boxShadow = `0 0 0 3px rgba(11,79,138,0.18)`;
+                        e.currentTarget.style.boxShadow = `0 0 0 3px rgba(11,58,104,0.16)`;
                         e.currentTarget.style.borderColor = brand.blue;
                       }}
                       onBlur={(e) => {
@@ -379,14 +384,17 @@ export function LoginPage() {
                       type="button"
                       onClick={() => setShowPwd((v) => !v)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700"
-                      aria-label={showPwd ? t("auth.passwordHide") : t("auth.passwordShow")}
+                      aria-label={showPwd ? "Ocultar palavra-passe" : "Mostrar palavra-passe"}
                     >
-                      {showPwd ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      {showPwd ? (
+                        <EyeOff className="h-5 w-5" />
+                      ) : (
+                        <Eye className="h-5 w-5" />
+                      )}
                     </button>
                   </div>
 
                   <div className="mt-3 flex items-center justify-between">
-                    {/* ✅ lembrar-me funcional */}
                     <label className="inline-flex items-center gap-2 text-xs text-slate-500">
                       <input
                         type="checkbox"
@@ -398,7 +406,7 @@ export function LoginPage() {
                           applyRememberPreference(next, email);
                         }}
                       />
-                      {t("auth.remember")}
+                      Lembrar-me
                     </label>
 
                     {mode === "operacoes" ? (
@@ -408,7 +416,7 @@ export function LoginPage() {
                         style={{ color: brand.blue }}
                         onClick={() => setSupportOpen(true)}
                       >
-                        {t("auth.forgot")}
+                        Recuperar acesso
                       </button>
                     ) : (
                       <span className="text-xs text-slate-400 select-none"> </span>
@@ -417,12 +425,28 @@ export function LoginPage() {
                 </div>
 
                 <div className="pt-1">
-                  <Button type="submit" fullWidth loading={submitting} disabled={submitting}>
-                    {t("auth.login")}
-                  </Button>
+                  <div
+                    style={
+                      {
+                        "--login-btn-bg": brand.orange,
+                        "--login-btn-bg-hover": brand.orange2,
+                        "--login-btn-color": brand.white,
+                      } as React.CSSProperties
+                    }
+                    className="login-gobi-button"
+                  >
+                    <Button
+                      type="submit"
+                      fullWidth
+                      loading={submitting}
+                      disabled={submitting}
+                    >
+                      Entrar
+                    </Button>
+                  </div>
 
                   <div className="mt-4 text-center text-xs text-slate-500">
-                    {t("auth.footer")}
+                    Ambiente interno protegido • Gobi & Júnior
                   </div>
                 </div>
               </form>
@@ -431,14 +455,27 @@ export function LoginPage() {
         </div>
       </div>
 
-      {/* ✅ Modal de Apoio (Esqueceu a palavra-passe) */}
       <SupportModal
         open={supportOpen && mode === "operacoes"}
         onClose={() => setSupportOpen(false)}
         brandBlue={brand.blue}
+        brandOrange={brand.orange}
         phoneDisplay="+351 936 178 415"
         phoneE164="+351936178415"
       />
+
+      <style>{`
+        .login-gobi-button button {
+          background: var(--login-btn-bg) !important;
+          color: var(--login-btn-color) !important;
+          border-color: var(--login-btn-bg) !important;
+        }
+
+        .login-gobi-button button:hover {
+          background: var(--login-btn-bg-hover) !important;
+          border-color: var(--login-btn-bg-hover) !important;
+        }
+      `}</style>
     </div>
   );
 }
@@ -467,12 +504,14 @@ function SupportModal({
   open,
   onClose,
   brandBlue,
+  brandOrange,
   phoneDisplay,
   phoneE164,
 }: {
   open: boolean;
   onClose: () => void;
   brandBlue: string;
+  brandOrange: string;
   phoneDisplay: string;
   phoneE164: string;
 }) {
@@ -481,20 +520,21 @@ function SupportModal({
   useEffect(() => {
     if (!open) return;
 
-    const t = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       panelRef.current?.focus();
     }, 0);
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
+
     document.addEventListener("keydown", onKeyDown);
 
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     return () => {
-      window.clearTimeout(t);
+      window.clearTimeout(timer);
       document.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = prev;
     };
@@ -525,7 +565,7 @@ function SupportModal({
         <div
           className="h-1 w-full"
           style={{
-            background: `linear-gradient(90deg, ${brandBlue} 0%, ${brandBlue} 65%, #F5A623 100%)`,
+            background: `linear-gradient(90deg, ${brandBlue} 0%, ${brandBlue} 65%, ${brandOrange} 100%)`,
           }}
         />
 
@@ -620,12 +660,14 @@ function CornerLanguageSelector() {
       if (!ref.current) return;
       if (!ref.current.contains(e.target as Node)) setOpen(false);
     }
+
     function onEsc(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
 
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onEsc);
+
     return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onEsc);

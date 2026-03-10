@@ -492,7 +492,7 @@ function NovaEmpresaModal({
               <input
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
-                placeholder='Ex: "Diâmetro"'
+                placeholder='Ex: "Gobi & Júnior"'
                 className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
                            focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
               />
@@ -505,7 +505,7 @@ function NovaEmpresaModal({
               <input
                 value={razao}
                 onChange={(e) => setRazao(e.target.value)}
-                placeholder='Ex: "Diâmetro Canalizações Lda"'
+                placeholder='Ex: "Gobi & Júnior Canalizações Lda"'
                 className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
                            focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
               />
@@ -650,7 +650,7 @@ function EditEmpresaModal({
                   onChange={(e) => setNome(e.target.value)}
                   className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
                              focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                  placeholder='Ex: "Diâmetro"'
+                  placeholder='Ex: "Gobi & Júnior"'
                 />
               </div>
 
@@ -663,7 +663,8 @@ function EditEmpresaModal({
                   onChange={(e) => setRazao(e.target.value)}
                   className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
                              focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                  placeholder='Ex: "Diâmetro Canalizações Lda"'
+                  placeholder='Ex: "Gobi & Júnior
+                  "'
                 />
               </div>
             </div>
@@ -1065,7 +1066,7 @@ function DocumentoModal({
               <input
                 value={entidadeNome}
                 onChange={(e) => setEntidadeNome(e.target.value)}
-                placeholder='Ex: "Pedro Costa" / "Diâmetro"'
+                placeholder='Ex: "Pedro Costa" / "Gobi & Júnior"'
                 className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
                            focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
               />

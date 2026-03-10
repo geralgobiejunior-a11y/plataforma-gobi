@@ -38,6 +38,12 @@ interface Obra {
   logo_url?: string | null;
 }
 
+const BRAND = {
+  blue: '#1F3348',
+  blueDark: '#2C4E6B',
+  orange: '#F59A23',
+};
+
 function formatDatePT(date?: string | null) {
   if (!date) return '-';
   const d = new Date(date);
@@ -109,6 +115,9 @@ function ObraLogo({
         <div
           className={`w-full h-full flex items-center justify-center font-bold tracking-tight text-slate-900 ${textClass}
                       dark:text-slate-100`}
+          style={{
+            backgroundImage: `linear-gradient(135deg, ${BRAND.orange}22, ${BRAND.blue}14)`,
+          }}
         >
           {obraInitials(nome)}
         </div>
@@ -130,7 +139,6 @@ export function Obras() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // controla expansão “ver mais” no mobile (por card)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -214,10 +222,10 @@ export function Obras() {
       p.tone === 'danger'
         ? 'bg-red-50 text-red-700 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/25'
         : p.tone === 'warning'
-        ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/25'
-        : p.tone === 'ok'
-        ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/25'
-        : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-200 dark:border-slate-800/70';
+          ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/25'
+          : p.tone === 'ok'
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:border-emerald-500/25'
+            : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-200 dark:border-slate-800/70';
 
     return (
       <span
@@ -261,14 +269,13 @@ export function Obras() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0B4F8A] dark:border-[#66A7E6]" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1F3348] dark:border-[#7EA3C7]" />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* KPIs — mobile em 2 colunas; custo ocupa linha inteira */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Obras</div>
@@ -308,7 +315,6 @@ export function Obras() {
       </div>
 
       <Card className="p-4 sm:p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
-        {/* Toolbar — mobile em 2 linhas */}
         <div className="flex flex-col gap-3">
           <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <div className="relative w-full sm:w-[360px]">
@@ -323,9 +329,9 @@ export function Obras() {
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
                            placeholder:text-slate-400
-                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                           focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent
                            dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
-                           dark:focus:ring-[#66A7E6]/25"
+                           dark:focus:ring-[#7EA3C7]/25"
               />
             </div>
 
@@ -337,7 +343,7 @@ export function Obras() {
               >
                 Atualizar
               </Button>
-              <Button onClick={() => openModal()}>
+              <Button onClick={() => openModal()} className="bg-[#1F3348] hover:bg-[#2C4E6B]">
                 <Plus size={16} className="mr-2" />
                 Nova Obra
               </Button>
@@ -349,8 +355,8 @@ export function Obras() {
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
               className="w-full sm:w-[220px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                         focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                         dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
+                         focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent text-sm
+                         dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#7EA3C7]/25"
             >
               <option value="todos">Todos os status</option>
               <option value="ativa">Ativa</option>
@@ -359,7 +365,6 @@ export function Obras() {
               <option value="cancelada">Cancelada</option>
             </select>
 
-            {/* Ações no mobile */}
             <div className="flex sm:hidden items-center gap-2">
               <Button
                 variant="secondary"
@@ -368,7 +373,7 @@ export function Obras() {
               >
                 Atualizar
               </Button>
-              <Button onClick={() => openModal()} className="flex-1">
+              <Button onClick={() => openModal()} className="flex-1 bg-[#1F3348] hover:bg-[#2C4E6B]">
                 <Plus size={16} className="mr-2" />
                 Nova
               </Button>
@@ -376,7 +381,6 @@ export function Obras() {
           </div>
         </div>
 
-        {/* Grid */}
         <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((obra) => {
             const custo = Number(obra.custo_mao_obra_acumulado || 0);
@@ -389,19 +393,17 @@ export function Obras() {
                 className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white transition-shadow hover:shadow-md
                            dark:border-slate-800/70 dark:bg-slate-900/60 dark:hover:bg-slate-900/70 dark:shadow-black/30"
               >
-                {/* Accent “pasta” */}
                 <div
-                  className="absolute inset-0 bg-gradient-to-br from-amber-50/60 via-white to-white pointer-events-none
-                             dark:from-amber-500/10 dark:via-slate-950/20 dark:to-slate-950/10"
+                  className="absolute inset-0 bg-gradient-to-br from-[#F59A23]/10 via-white to-white pointer-events-none
+                             dark:from-[#F59A23]/10 dark:via-slate-950/20 dark:to-slate-950/10"
                 />
-                <div className="absolute inset-y-0 left-0 w-1.5 bg-amber-500/90 dark:bg-amber-400/80" />
+                <div className="absolute inset-y-0 left-0 w-1.5 bg-[#F59A23] dark:bg-[#F59A23]" />
                 <div
-                  className="absolute -top-3 left-6 h-7 w-28 rounded-t-2xl bg-amber-100 border border-amber-200 border-b-0 shadow-sm
-                             dark:bg-amber-500/15 dark:border-amber-500/25 dark:shadow-black/30"
+                  className="absolute -top-3 left-6 h-7 w-28 rounded-t-2xl bg-[#F59A23]/18 border border-[#F59A23]/30 border-b-0 shadow-sm
+                             dark:bg-[#F59A23]/15 dark:border-[#F59A23]/25 dark:shadow-black/30"
                 />
 
                 <div className="relative p-4">
-                  {/* Header */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex items-start gap-3">
                       <ObraLogo nome={obra.nome} logo_url={obra.logo_url} size="md" />
@@ -411,7 +413,7 @@ export function Obras() {
                           <h3 className="font-semibold text-slate-900 dark:text-slate-100 truncate">{obra.nome}</h3>
                           {prazo.tone === 'danger' && (
                             <span
-                              className="inline-flex items-center gap-1 text-xs text-red-700 dark:text-red-300"
+                              className="inline-flex items-center gap-1 text-red-700 dark:text-red-300"
                               title="Obra atrasada"
                             >
                               <AlertTriangle size={14} />
@@ -428,7 +430,6 @@ export function Obras() {
                     <Badge variant={statusVariant(obra.status)}>{obra.status}</Badge>
                   </div>
 
-                  {/* Pills — no mobile mostra só o essencial (prazo + localização curta) */}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {prazoPill(obra)}
                     {obra.localizacao && (
@@ -442,7 +443,6 @@ export function Obras() {
                     )}
                   </div>
 
-                  {/* Resumo custo (sempre visível) */}
                   <div className="mt-4 rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-950/35">
                     <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                       <Euro size={14} className="text-slate-400 dark:text-slate-500" />
@@ -451,7 +451,6 @@ export function Obras() {
                     <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{eur(custo)}</div>
                   </div>
 
-                  {/* “Ver mais” — só aparece no mobile */}
                   <div className="mt-3 md:hidden">
                     <button
                       type="button"
@@ -474,8 +473,13 @@ export function Obras() {
                     </button>
                   </div>
 
-                  {/* Datas — sempre visível no desktop; colapsável no mobile */}
-                  <div className={['mt-4 grid grid-cols-2 gap-3', 'md:grid', isExpanded ? 'grid' : 'hidden md:grid'].join(' ')}>
+                  <div
+                    className={[
+                      'mt-4 grid grid-cols-2 gap-3',
+                      'md:grid',
+                      isExpanded ? 'grid' : 'hidden md:grid',
+                    ].join(' ')}
+                  >
                     <div className="rounded-2xl border border-slate-200 bg-white/80 p-3 dark:border-slate-800 dark:bg-slate-950/35">
                       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                         <Calendar size={14} className="text-slate-400 dark:text-slate-500" />
@@ -497,7 +501,6 @@ export function Obras() {
                     </div>
                   </div>
 
-                  {/* Footer (ações) */}
                   <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-800/70 flex items-center justify-between gap-3">
                     <div className="min-w-0 hidden md:block">
                       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
@@ -517,7 +520,11 @@ export function Obras() {
                         <Edit size={16} />
                       </Button>
 
-                      <Button size="sm" onClick={() => open(obra)} className="whitespace-nowrap">
+                      <Button
+                        size="sm"
+                        onClick={() => open(obra)}
+                        className="whitespace-nowrap bg-[#1F3348] hover:bg-[#2C4E6B]"
+                      >
                         Ver obra
                         <ArrowRight size={16} className="ml-2" />
                       </Button>
@@ -534,7 +541,6 @@ export function Obras() {
         )}
       </Card>
 
-      {/* Drawer Detalhes */}
       {selected && <ObraDetailsDrawer obra={selected} onClose={close} onEdit={handleEditFromDrawer} />}
 
       <ObraModal isOpen={modalOpen} onClose={closeModal} onSuccess={handleModalSuccess} obraId={editingId} />

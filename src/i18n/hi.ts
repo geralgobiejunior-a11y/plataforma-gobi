@@ -60,11 +60,11 @@ export default {
   'auth.passwordShow': 'पासवर्ड दिखाएँ',
   'auth.passwordHide': 'पासवर्ड छिपाएँ',
   'auth.recoveryNotImplemented': 'पासवर्ड रिकवरी फ़्लो अभी लागू नहीं है।',
-  'auth.footer': 'Diâmetro आंतरिक सिस्टम • सीमित पहुँच',
+  'auth.footer': 'Gobi & Júnior आंतरिक सिस्टम • सीमित पहुँच',
   'auth.loginErrorGeneric': 'लॉगिन में त्रुटि',
 
   // Auth (Hero - left)
-  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandTitle': 'Sistema Gobi & Júnior',
   'auth.hero.brandSubtitle': 'परियोजनाओं और सहयोगियों का प्रबंधन',
   'auth.hero.headlineA': 'प्रोफेशनल प्लम्बिंग',
   'auth.hero.headlineB': 'पूर्ण नियंत्रण के साथ',
@@ -76,7 +76,7 @@ export default {
   'auth.hero.feature2.desc': 'अनुमतियों के साथ प्रशासन और ऑपरेशन्स।',
 
   // Auth (Post-login notification)
-  'auth.notification.title': 'Sistema Diâmetro में आपका स्वागत है',
+  'auth.notification.title': 'Sistema Gobi & Júnior में आपका स्वागत है',
   'auth.notification.body':
     'नमस्ते {nome}! सिस्टम में सफलतापूर्वक लॉगिन हो गया।',
 

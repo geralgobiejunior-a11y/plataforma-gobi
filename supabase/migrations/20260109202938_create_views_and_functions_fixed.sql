@@ -252,7 +252,7 @@ SELECT
     WHEN 'colaborador' THEN c.nome_completo
     WHEN 'obra' THEN o.nome
     WHEN 'empresa' THEN e.nome
-    ELSE 'Diâmetro'
+    ELSE 'Gobi & Júnior'
   END as entidade_nome,
   
   CASE 

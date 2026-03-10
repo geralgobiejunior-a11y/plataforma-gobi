@@ -28,19 +28,19 @@ interface Colaborador {
   telefone: string | null;
   status: string;
   valor_hora: number | null;
-  data_entrada_plataforma: string | null; // YYYY-MM-DD
+  data_entrada_plataforma: string | null;
   categoria: string | null;
   foto_url: string | null;
 }
 
 type PresencaRow = {
   horas_trabalhadas: number | null;
-  data: string; // YYYY-MM-DD
+  data: string;
   colaborador_id: string;
 };
 
 type DocumentoRow = {
-  data_validade: string | null; // YYYY-MM-DD
+  data_validade: string | null;
   colaborador_id: string;
 };
 
@@ -52,7 +52,11 @@ type Metrics = {
   docsAVencer30: number;
 };
 
-const BRAND = { blue: '#0B4F8A', orange: '#F5A623' };
+const BRAND = {
+  blue: '#1F3348',
+  blueDark: '#2C4E6B',
+  orange: '#F59A23',
+};
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -60,11 +64,6 @@ function startOfDay(d: Date) {
   return x;
 }
 
-/**
- * Evita bugs de timezone:
- * - Para filtros no Postgres (data tipo date), use string YYYY-MM-DD construída em LOCAL.
- * - Para comparar datas YYYY-MM-DD, parse como local (T00:00:00) e compare com startOfDay(local).
- */
 function toISODateLocal(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -73,8 +72,6 @@ function toISODateLocal(d: Date) {
 }
 
 function parseDateOnlyLocal(iso: string) {
-  // iso esperado: YYYY-MM-DD
-  // new Date('YYYY-MM-DD') pode ser UTC em alguns browsers; forçamos local.
   return new Date(`${iso}T00:00:00`);
 }
 
@@ -93,7 +90,6 @@ function safeHours(n: number) {
   return Math.round((n || 0) * 10) / 10;
 }
 
-// normaliza para comparação robusta (remove acentos)
 function normKey(s: string) {
   return String(s || '')
     .trim()
@@ -158,7 +154,7 @@ function Avatar({
         <div
           className="w-full h-full flex items-center justify-center text-white font-bold"
           style={{
-            backgroundImage: `linear-gradient(135deg, ${BRAND.blue}, #083B67)`,
+            backgroundImage: `linear-gradient(135deg, ${BRAND.blue}, ${BRAND.blueDark})`,
             fontSize,
           }}
         >
@@ -186,8 +182,8 @@ function IconActionButton({
         danger
           ? `p-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 transition
              dark:border-red-500/25 dark:text-red-200 dark:hover:bg-red-500/10`
-          : `p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#0B4F8A] hover:bg-white transition
-             dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#66A7E6] dark:hover:bg-slate-900/60`
+          : `p-2 rounded-xl border border-slate-200 text-slate-500 hover:text-[#1F3348] hover:bg-white transition
+             dark:border-slate-800 dark:text-slate-300 dark:hover:text-[#7EA3C7] dark:hover:bg-slate-900/60`
       }
       onClick={onClick}
       title={title}
@@ -259,7 +255,7 @@ function Segmented({
             onClick={() => onChange(it.value)}
             className={
               active
-                ? `px-3 py-2 rounded-xl text-sm font-semibold bg-[#0B4F8A] text-white`
+                ? `px-3 py-2 rounded-xl text-sm font-semibold bg-[#1F3348] text-white`
                 : `px-3 py-2 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50
                    dark:text-slate-200 dark:hover:bg-slate-900/50`
             }
@@ -296,7 +292,7 @@ export function Colaboradores({
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<'ativos' | 'baixa'>('ativos'); // ✅ por padrão só ativos
+  const [viewMode, setViewMode] = useState<'ativos' | 'baixa'>('ativos');
   const [cargoFilter, setCargoFilter] = useState<string>('todos');
   const [sortKey, setSortKey] = useState<'nome' | 'horas7d' | 'docs' | 'valor'>('nome');
 
@@ -350,7 +346,6 @@ export function Colaboradores({
         colaborador_id: p.colaborador_id,
       })) as PresencaRow[];
 
-      // Docs agg
       const docsAgg: Record<string, { vencidos: number; aVencer30: number }> = {};
       for (const d of docs) {
         const id = d.colaborador_id;
@@ -368,7 +363,6 @@ export function Colaboradores({
         else if (dv >= hoje && dv <= em30) docsAgg[id].aVencer30 += 1;
       }
 
-      // Presenças agg
       const presAgg: Record<string, { horas7d: number; horas30d: number; ultima: string | null }> = {};
       for (const p of presencas) {
         const id = p.colaborador_id;
@@ -433,7 +427,6 @@ export function Colaboradores({
     closeModal();
   };
 
-  // ✅ contagens para separador Ativos / Baixa
   const counts = useMemo(() => {
     const total = colaboradores.length;
     const ativos = colaboradores.filter((c) => normStatus(c.status) === 'ativo').length;
@@ -441,7 +434,6 @@ export function Colaboradores({
     return { total, ativos, baixa };
   }, [colaboradores]);
 
-  // ✅ KPIs alinhados: horas/alertas calculados sobre ATIVOS (página “normal”)
   const kpis = useMemo(() => {
     const ativosIds = new Set(colaboradores.filter((c) => normStatus(c.status) === 'ativo').map((c) => c.id));
     const alertasDocsAtivos = Object.entries(metricsById).reduce((acc, [id, m]) => {
@@ -473,16 +465,12 @@ export function Colaboradores({
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-
-    // ✅ viewMode controla a listagem principal
     const statusTarget = viewMode === 'ativos' ? 'ativo' : 'baixa';
 
     let rows = colaboradores.filter((c) => {
       const nomeOk = !s || c.nome_completo.toLowerCase().includes(s);
-
       const st = normStatus(c.status);
       const statusOk = st === statusTarget;
-
       const cargoOk = cargoFilter === 'todos' ? true : (c.categoria || '-') === cargoFilter;
       return nomeOk && statusOk && cargoOk;
     });
@@ -493,11 +481,12 @@ export function Colaboradores({
 
       if (sortKey === 'nome') return a.nome_completo.localeCompare(b.nome_completo);
       if (sortKey === 'horas7d') return (mb?.horas7d || 0) - (ma?.horas7d || 0);
-      if (sortKey === 'docs')
+      if (sortKey === 'docs') {
         return (
           ((mb?.docsVencidos || 0) + (mb?.docsAVencer30 || 0)) -
           ((ma?.docsVencidos || 0) + (ma?.docsAVencer30 || 0))
         );
+      }
       if (sortKey === 'valor') return Number(b.valor_hora || 0) - Number(a.valor_hora || 0);
       return 0;
     });
@@ -505,9 +494,7 @@ export function Colaboradores({
     return rows;
   }, [colaboradores, search, cargoFilter, sortKey, metricsById, viewMode]);
 
-  // ---------- DELETE (seguro) ----------
   const getDeleteDependencies = async (colaboradorId: string): Promise<DeleteDeps> => {
-    // Se não existir coluna "id" nestas tabelas, ajusta para uma coluna existente.
     const [pres, docs] = await Promise.all([
       supabase
         .from('presencas_dia')
@@ -551,14 +538,9 @@ export function Colaboradores({
   const closeDelete = () => setDeleteState({ open: false });
 
   const markAsBaixa = async (c: Colaborador) => {
-    // alternativa segura quando não dá para apagar (ou quando queres apenas “arquivar”)
     const { error } = await supabase.from('colaboradores').update({ status: 'Baixa' }).eq('id', c.id);
     if (error) {
-      setDeleteState((s) =>
-        s.open
-          ? { ...s, error: error.message }
-          : s,
-      );
+      setDeleteState((s) => (s.open ? { ...s, error: error.message } : s));
       return;
     }
     if (selected?.id === c.id) setSelected(null);
@@ -571,11 +553,14 @@ export function Colaboradores({
     if (!deleteState.open) return;
     const c = deleteState.colaborador;
 
-    // Se tiver dependências, não apaga por segurança (evita FK quebrar, histórico perdido, etc.)
     if (deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0)) {
       setDeleteState((s) =>
         s.open
-          ? { ...s, error: 'Este colaborador tem histórico (presenças/documentos). Para manter integridade, use “Marcar como Baixa”.' }
+          ? {
+              ...s,
+              error:
+                'Este colaborador tem histórico (presenças/documentos). Para manter integridade, use “Marcar como Baixa”.',
+            }
           : s,
       );
       return;
@@ -597,7 +582,7 @@ export function Colaboradores({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#0B4F8A] dark:border-[#66A7E6]" />
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1F3348] dark:border-[#7EA3C7]" />
       </div>
     );
   }
@@ -620,7 +605,6 @@ export function Colaboradores({
         </Card>
       )}
 
-      {/* KPIs (mobile 2 colunas) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
           <div className="text-xs text-slate-500 dark:text-slate-400">Total</div>
@@ -648,10 +632,8 @@ export function Colaboradores({
       </div>
 
       <Card className="p-5 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
-        {/* Toolbar */}
         <div className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
           <div className="flex flex-col gap-3">
-            {/* ✅ Toggle Ativos / Baixa */}
             <div className="flex flex-wrap items-center gap-3">
               <Segmented
                 value={viewMode}
@@ -679,9 +661,9 @@ export function Colaboradores({
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
                              placeholder:text-slate-400
-                             focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent
+                             focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent
                              dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:placeholder:text-slate-500
-                             dark:focus:ring-[#66A7E6]/25"
+                             dark:focus:ring-[#7EA3C7]/25"
                 />
               </div>
 
@@ -689,8 +671,8 @@ export function Colaboradores({
                 value={cargoFilter}
                 onChange={(e) => setCargoFilter(e.target.value)}
                 className="w-full sm:w-[220px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
+                           focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent text-sm
+                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#7EA3C7]/25"
               >
                 {cargosOptions.map((c) => (
                   <option key={c} value={c}>
@@ -703,8 +685,8 @@ export function Colaboradores({
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value as any)}
                 className="w-full sm:w-[190px] px-3 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900
-                           focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent text-sm
-                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#66A7E6]/25"
+                           focus:ring-2 focus:ring-[#1F3348]/30 focus:border-transparent text-sm
+                           dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-100 dark:focus:ring-[#7EA3C7]/25"
               >
                 <option value="nome">Ordenar: Nome</option>
                 <option value="horas7d">Ordenar: Horas (7d)</option>
@@ -722,14 +704,13 @@ export function Colaboradores({
             >
               Atualizar
             </Button>
-            <Button onClick={() => openModal()}>
+            <Button onClick={() => openModal()} className="bg-[#1F3348] hover:bg-[#2C4E6B]">
               <UserPlus size={16} className="mr-2" />
               Novo Colaborador
             </Button>
           </div>
         </div>
 
-        {/* MOBILE LIST */}
         <div className="mt-5 md:hidden space-y-3">
           {filtered.map((c) => {
             const m = metricsById[c.id] || {
@@ -823,8 +804,7 @@ export function Colaboradores({
                         )}
                         {valorHora > 0 ? (
                           <span className="ml-2">
-                            7d:{' '}
-                            <span className="font-semibold tabular-nums">{formatEUR(valorHora * (m.horas7d || 0))}</span>
+                            7d: <span className="font-semibold tabular-nums">{formatEUR(valorHora * (m.horas7d || 0))}</span>
                           </span>
                         ) : null}
                       </div>
@@ -864,7 +844,6 @@ export function Colaboradores({
           )}
         </div>
 
-        {/* DESKTOP/TABLET TABLE */}
         <div className="mt-5 hidden md:block">
           <div className="rounded-2xl border border-slate-200 overflow-hidden dark:border-slate-800/70">
             <table className="w-full table-fixed">
@@ -1024,7 +1003,6 @@ export function Colaboradores({
         </div>
       </Card>
 
-      {/* Drawer de Perfil */}
       {selected && (
         <>
           <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setSelected(null)} aria-hidden="true" />
@@ -1093,7 +1071,7 @@ export function Colaboradores({
 
               <Card className="p-4 border border-slate-200 bg-white shadow-sm dark:border-slate-800/70 dark:bg-slate-900/60 dark:shadow-black/30">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  <TrendingUp size={16} className="text-[#0B4F8A] dark:text-[#66A7E6]" />
+                  <TrendingUp size={16} className="text-[#1F3348] dark:text-[#7EA3C7]" />
                   Indicadores operacionais
                 </div>
 
@@ -1158,7 +1136,7 @@ export function Colaboradores({
               </Card>
 
               <div className="flex gap-2">
-                <Button className="flex-1" onClick={() => openModal(selected.id)}>
+                <Button className="flex-1 bg-[#1F3348] hover:bg-[#2C4E6B]" onClick={() => openModal(selected.id)}>
                   Editar perfil
                 </Button>
 
@@ -1194,7 +1172,6 @@ export function Colaboradores({
         </>
       )}
 
-      {/* Modal Apagar */}
       {deleteState.open && (
         <>
           <div className="fixed inset-0 bg-black/40 z-[60]" onClick={closeDelete} aria-hidden="true" />
@@ -1245,8 +1222,7 @@ export function Colaboradores({
 
                       {deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0) ? (
                         <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
-                          Este colaborador tem histórico. Em vez de apagar (o que pode quebrar relatórios e histórico),
-                          use <span className="font-semibold">Marcar como Baixa</span> para esconder da página principal.
+                          Este colaborador tem histórico. Em vez de apagar, use <span className="font-semibold">Marcar como Baixa</span> para esconder da página principal.
                         </div>
                       ) : (
                         <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
@@ -1297,7 +1273,7 @@ export function Colaboradores({
                     {deleteState.deps && (deleteState.deps.presencasCount > 0 || deleteState.deps.docsCount > 0) ? (
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         Nota: para permitir apagar mesmo com histórico, teria de existir “ON DELETE CASCADE” nas FKs ou uma rotina de limpeza
-                        que apague também presenças/documentos relacionados (não recomendo para histórico operacional).
+                        que apague também presenças/documentos relacionados.
                       </div>
                     ) : null}
                   </>

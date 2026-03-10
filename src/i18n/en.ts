@@ -60,11 +60,11 @@ export default {
   'auth.passwordShow': 'Show password',
   'auth.passwordHide': 'Hide password',
   'auth.recoveryNotImplemented': 'Password recovery flow is not implemented yet.',
-  'auth.footer': 'Diâmetro internal system • Restricted access',
+  'auth.footer': 'Gobi & Júnior internal system • Restricted access',
   'auth.loginErrorGeneric': 'Login error',
 
   // Auth (Hero - left)
-  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandTitle': 'Sistema Gobi & Júnior',
   'auth.hero.brandSubtitle': 'Worksites & Collaborators Management',
   'auth.hero.headlineA': 'Professional plumbing',
   'auth.hero.headlineB': 'with total control',
@@ -76,7 +76,7 @@ export default {
   'auth.hero.feature2.desc': 'Administration and Operations with permissions.',
 
   // Auth (Post-login notification)
-  'auth.notification.title': 'Welcome to Sistema Diâmetro',
+  'auth.notification.title': 'Welcome to Sistema Gobi & Júnior',
   'auth.notification.body': 'Hi {nome}! You have successfully logged in.',
 
   // Navigation

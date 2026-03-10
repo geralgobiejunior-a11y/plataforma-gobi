@@ -1,5 +1,5 @@
 /*
-  # Dados de Exemplo - Sistema Diâmetro
+  # Dados de Exemplo - Sistema Gobi & Júnior
 
   1. Dados inseridos
     - Empresas clientes

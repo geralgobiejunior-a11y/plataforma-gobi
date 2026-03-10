@@ -60,11 +60,11 @@ export default {
   'auth.passwordShow': 'إظهار كلمة المرور',
   'auth.passwordHide': 'إخفاء كلمة المرور',
   'auth.recoveryNotImplemented': 'مسار استعادة كلمة المرور غير مُنفّذ بعد.',
-  'auth.footer': 'نظام Diâmetro الداخلي • وصول مقيّد',
+  'auth.footer': 'نظام Gobi & Júnior الداخلي • وصول مقيّد',
   'auth.loginErrorGeneric': 'خطأ في تسجيل الدخول',
 
   // Auth (Hero - left)
-  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandTitle': 'Sistema Gobi & Júnior',
   'auth.hero.brandSubtitle': 'إدارة المشاريع والمتعاونين',
   'auth.hero.headlineA': 'سباكة احترافية',
   'auth.hero.headlineB': 'مع تحكّم كامل',
@@ -76,7 +76,7 @@ export default {
   'auth.hero.feature2.desc': 'الإدارة والعمليات مع مستويات وصول.',
 
   // Auth (Post-login notification)
-  'auth.notification.title': 'مرحبًا بك في Sistema Diâmetro',
+  'auth.notification.title': 'مرحبًا بك في Sistema Gobi & Júnior',
   'auth.notification.body': 'مرحبًا {nome}! تم تسجيل الدخول بنجاح.',
 
   // Navigation

@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, apikey, content-type, x-client-info",
+    "authorization, x-client-info, apikey, content-type, sb-access-token, sb-refresh-token",
 };
 
 function json(body: unknown, status = 200) {

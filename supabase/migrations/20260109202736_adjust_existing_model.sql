@@ -1,5 +1,5 @@
 /*
-  # Ajustar Modelo Existente - Sistema Diâmetro
+  # Ajustar Modelo Existente - Sistema Gobi & Júnior
 
   1. Novas Tabelas
     - empresas: Clientes/empresas

@@ -60,11 +60,11 @@ export default {
   'auth.passwordShow': 'Mostrar contraseña',
   'auth.passwordHide': 'Ocultar contraseña',
   'auth.recoveryNotImplemented': 'El flujo de recuperación aún no está implementado.',
-  'auth.footer': 'Sistema interno Diâmetro • Acceso restringido',
+  'auth.footer': 'Sistema interno Gobi & Júnior • Acceso restringido',
   'auth.loginErrorGeneric': 'Error al iniciar sesión',
 
   // Auth (Hero - izquierda)
-  'auth.hero.brandTitle': 'Sistema Diâmetro',
+  'auth.hero.brandTitle': 'Sistema Gobi & Júnior',
   'auth.hero.brandSubtitle': 'Gestión de Obras y Colaboradores',
   'auth.hero.headlineA': 'Fontanería profesional',
   'auth.hero.headlineB': 'con control total',
@@ -76,7 +76,7 @@ export default {
   'auth.hero.feature2.desc': 'Administración y Operaciones con permisos.',
 
   // Auth (Notificación post-login)
-  'auth.notification.title': 'Bienvenido a Sistema Diâmetro',
+  'auth.notification.title': 'Bienvenido a Sistema Gobi & Júnior',
   'auth.notification.body':
     'Hola {nome}! Acceso al sistema realizado con éxito.',
 
