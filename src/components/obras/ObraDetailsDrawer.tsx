@@ -38,6 +38,12 @@ interface Obra {
   cliente: string | null;
   localizacao: string | null;
   endereco: string | null;
+  rua: string | null;
+  numero_porta: string | null;
+  codigo_postal: string | null;
+  freguesia: string | null;
+  concelho: string | null;
+  distrito: string | null;
   status: string;
   data_inicio: string | null;
   data_fim_prevista: string | null;
@@ -57,7 +63,7 @@ interface Colaborador {
   email: string | null;
   status: string;
   data_inicio: string | null;
-  ativo: boolean; // vem de obras_colaboradores.ativo
+  ativo: boolean;
   valor_hora: number | null;
 }
 
@@ -105,7 +111,6 @@ function useDebouncedValue<T>(value: T, delay = 250) {
 }
 
 function sanitizeSearch(input: string) {
-  // evita caracteres que podem quebrar o .or() do PostgREST
   return input.replace(/[%_,]/g, ' ').trim();
 }
 
@@ -154,6 +159,56 @@ function getStatusValidade(dataValidade: string | null): 'valido' | 'vencido' | 
   if (validade < hoje) return 'vencido';
   if (validade <= em30Dias) return 'a_vencer';
   return 'valido';
+}
+
+function safeText(value?: string | null) {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+}
+
+function hasValidCoords(obra: Obra) {
+  return Number.isFinite(Number(obra.latitude)) && Number.isFinite(Number(obra.longitude));
+}
+
+function buildObraAddress(obra: Obra) {
+  const rua = safeText(obra.rua);
+  const numero = safeText(obra.numero_porta);
+  const codigoPostal = safeText(obra.codigo_postal);
+  const freguesia = safeText(obra.freguesia);
+  const concelho = safeText(obra.concelho);
+  const distrito = safeText(obra.distrito);
+
+  const linha1 = [rua, numero].filter(Boolean).join(' ').trim();
+
+  return [linha1, codigoPostal, freguesia, concelho, distrito, 'Portugal']
+    .filter(Boolean)
+    .join(', ');
+}
+
+function getBestObraAddress(obra: Obra) {
+  const built = buildObraAddress(obra);
+  if (built) return built;
+
+  const endereco = safeText(obra.endereco);
+  if (endereco && endereco !== ', ,' && endereco !== ',') return endereco;
+
+  const localizacao = safeText(obra.localizacao);
+  if (localizacao) return localizacao;
+
+  return safeText(obra.nome);
+}
+
+function getDisplayLocation(obra: Obra) {
+  const built = buildObraAddress(obra);
+  if (built) return built;
+
+  const endereco = safeText(obra.endereco);
+  if (endereco && !/^(\s*,\s*)+$/.test(endereco)) return endereco;
+
+  const localizacao = safeText(obra.localizacao);
+  if (localizacao) return localizacao;
+
+  return 'Local não definido';
 }
 
 /* --------------------------- memo row ------------------------------ */
@@ -235,10 +290,8 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // stats de horas/custo por colaborador
   const [workStats, setWorkStats] = useState<Record<string, WorkStat>>({});
 
-  // Modal alocação
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignLoading, setAssignLoading] = useState(false);
   const [assignSearch, setAssignSearch] = useState('');
@@ -249,15 +302,12 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
   const [assignHasMore, setAssignHasMore] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // fonte de verdade para paginação (evita loops)
   const assignPageRef = useRef(0);
   const assignHasMoreRef = useRef(true);
 
-  // locks para evitar flood e ignorar resultados antigos
   const assignFetchingRef = useRef(false);
   const assignReqIdRef = useRef(0);
 
-  // Modal remover (confirm)
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<Colaborador | null>(null);
@@ -279,6 +329,10 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
     () => Object.values(workStats).reduce((acc, s) => acc + (s?.custo || 0), 0),
     [workStats]
   );
+
+  const obraDisplayLocation = useMemo(() => getDisplayLocation(obra), [obra]);
+  const obraBestAddress = useMemo(() => getBestObraAddress(obra), [obra]);
+  const obraHasCoords = useMemo(() => hasValidCoords(obra), [obra]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -496,8 +550,17 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
   const getUserLocation = useCallback(() => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (position) => setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }),
-      (error) => console.log('Erro ao obter localização:', error)
+      (position) =>
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }),
+      (error) => console.log('Erro ao obter localização:', error),
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000,
+      }
     );
   }, []);
 
@@ -528,7 +591,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
     assignPageRef.current = 0;
     assignHasMoreRef.current = true;
 
-    // invalida respostas antigas
     assignReqIdRef.current += 1;
     assignFetchingRef.current = false;
   }, []);
@@ -589,7 +651,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
         const { data, error } = await q;
         if (error) throw error;
 
-        // ignora respostas antigas
         if (reqId !== assignReqIdRef.current) return;
 
         const cleaned = (data || []).filter((c: any) =>
@@ -629,11 +690,9 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
     [assignOpen, debouncedAssignSearch]
   );
 
-  // Fetch inicial quando abre / quando muda a pesquisa (debounced)
   useEffect(() => {
     if (!assignOpen) return;
 
-    // reset paginação ao mudar o termo
     setAssignItems([]);
     setAssignPage(0);
     setAssignHasMore(true);
@@ -641,7 +700,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
     assignPageRef.current = 0;
     assignHasMoreRef.current = true;
 
-    // invalida resultados antigos e faz fetch reset
     assignReqIdRef.current += 1;
     assignFetchingRef.current = false;
 
@@ -776,15 +834,28 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
   /* ----------------------------- maps ----------------------------- */
 
   const openInGoogleMaps = useCallback(() => {
-    let url: string;
-    if (obra.latitude && obra.longitude) {
-      url = `https://www.google.com/maps/search/?api=1&query=${obra.latitude},${obra.longitude}`;
-    } else {
-      const address = obra.endereco || obra.localizacao || obra.nome;
-      url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
-    }
+    const url = obraHasCoords
+      ? `https://www.google.com/maps/search/?api=1&query=${obra.latitude},${obra.longitude}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(obraBestAddress)}`;
+
     window.open(url, '_blank');
-  }, [obra.endereco, obra.latitude, obra.localizacao, obra.longitude, obra.nome]);
+  }, [obraBestAddress, obraHasCoords, obra.latitude, obra.longitude]);
+
+  const openDirections = useCallback(() => {
+    const destination = obraHasCoords
+      ? `${obra.latitude},${obra.longitude}`
+      : obraBestAddress;
+
+    const origin = userLocation ? `${userLocation.lat},${userLocation.lng}` : '';
+
+    const url = origin
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+          origin
+        )}&destination=${encodeURIComponent(destination)}`
+      : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+
+    window.open(url, '_blank');
+  }, [obraBestAddress, obraHasCoords, obra.latitude, obra.longitude, userLocation]);
 
   const tabs = useMemo(
     () => [
@@ -814,7 +885,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
           border-l border-slate-200 dark:border-slate-800
         "
       >
-        {/* Header */}
         <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex-shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -838,6 +908,12 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                     {obra.localizacao}
                   </span>
                 )}
+                {obraHasCoords && (
+                  <span className="text-xs text-emerald-600 dark:text-emerald-300 flex items-center gap-1">
+                    <Navigation size={12} />
+                    Local exato configurado
+                  </span>
+                )}
               </div>
             </div>
 
@@ -850,7 +926,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
             </button>
           </div>
 
-          {/* Tabs */}
           <div className="mt-4 grid grid-cols-4 gap-1 bg-slate-100 dark:bg-slate-900/50 rounded-xl p-1">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -873,7 +948,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
           {activeTab === 'info' && (
             <>
@@ -896,14 +970,20 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                 </div>
               </Card>
 
-              {obra.endereco && (
-                <Card className="p-4 dark:bg-slate-950 dark:border-slate-800">
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Endereço</div>
-                  <div className="text-sm text-slate-900 dark:text-slate-100 break-words">
-                    {obra.endereco}
+              <Card className="p-4 dark:bg-slate-950 dark:border-slate-800">
+                <div className="text-xs text-slate-500 dark:text-slate-400 mb-2">Morada da obra</div>
+                <div className="text-sm text-slate-900 dark:text-slate-100 break-words">
+                  {obraDisplayLocation}
+                </div>
+
+                {(safeText(obra.freguesia) || safeText(obra.concelho) || safeText(obra.distrito)) && (
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    {[safeText(obra.freguesia), safeText(obra.concelho), safeText(obra.distrito)]
+                      .filter(Boolean)
+                      .join(' • ')}
                   </div>
-                </Card>
-              )}
+                )}
+              </Card>
 
               {obra.descricao && (
                 <Card className="p-4 dark:bg-slate-950 dark:border-slate-800">
@@ -937,7 +1017,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
           {activeTab === 'equipa' && (
             <>
-              {/* Top bar da Equipa */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -1036,7 +1115,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                                 </div>
                               )}
 
-                              {/* badges horas / €/h / custo */}
                               <div className="mt-3 flex flex-wrap gap-2 text-xs">
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
                                   <Clock size={14} />
@@ -1088,7 +1166,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                 </div>
               )}
 
-              {/* Modal Alocar Colaborador */}
               {assignOpen && (
                 <>
                   <div
@@ -1148,20 +1225,19 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                           </div>
 
                           <div
-  className="
-    mt-4
-    overflow-y-auto space-y-2
-    rounded-xl
-    border border-slate-200 dark:border-slate-800
-    bg-white dark:bg-slate-950
-    p-2
-    h-[468px]              /* ~6 itens visíveis (desktop) */
-    max-h-[60vh]           /* segurança: nunca passa 60% da altura */
-    sm:h-[468px]
-  "
-  onScroll={onAssignListScroll}
->
-
+                            className="
+                              mt-4
+                              overflow-y-auto space-y-2
+                              rounded-xl
+                              border border-slate-200 dark:border-slate-800
+                              bg-white dark:bg-slate-950
+                              p-2
+                              h-[468px]
+                              max-h-[60vh]
+                              sm:h-[468px]
+                            "
+                            onScroll={onAssignListScroll}
+                          >
                             {assignLoading && assignItems.length === 0 ? (
                               <div className="flex items-center justify-center py-10">
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#0B4F8A]" />
@@ -1183,7 +1259,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                                   />
                                 ))}
 
-                                {/* loader “bottom” quando faz paginação */}
                                 {assignLoading && assignItems.length > 0 && (
                                   <div className="flex items-center justify-center py-4">
                                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0B4F8A]" />
@@ -1205,7 +1280,11 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                         <Button variant="secondary" onClick={closeAssign} disabled={assignLoading}>
                           Cancelar
                         </Button>
-                        <Button onClick={handleAssignSelected} loading={assignLoading} disabled={assignLoading}>
+                        <Button
+                          onClick={handleAssignSelected}
+                          loading={assignLoading}
+                          disabled={assignLoading}
+                        >
                           Alocar selecionados
                         </Button>
                       </div>
@@ -1214,7 +1293,6 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                 </>
               )}
 
-              {/* Modal Confirmar Desalocação */}
               {removeOpen && removeTarget && (
                 <>
                   <div
@@ -1365,9 +1443,17 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                     <div className="font-semibold text-slate-900 dark:text-slate-100">
                       {obra.localizacao || 'Localização'}
                     </div>
-                    {obra.endereco && (
-                      <div className="text-sm text-slate-600 dark:text-slate-300 mt-1 break-words">
-                        {obra.endereco}
+                    <div className="text-sm text-slate-600 dark:text-slate-300 mt-1 break-words">
+                      {obraDisplayLocation}
+                    </div>
+
+                    {obraHasCoords ? (
+                      <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">
+                        Localização exata disponível via latitude/longitude.
+                      </div>
+                    ) : (
+                      <div className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                        Sem coordenadas exatas. O mapa vai usar a melhor morada disponível.
                       </div>
                     )}
                   </div>
@@ -1376,21 +1462,19 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
               <Card className="overflow-hidden dark:bg-slate-950 dark:border-slate-800">
                 <div className="relative h-[260px] sm:h-[400px] bg-slate-100 dark:bg-slate-900/40">
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    style={{ border: 0 }}
-                    loading="lazy"
-                    allowFullScreen
-                    referrerPolicy="no-referrer-when-downgrade"
-                    src={
-                      obra.latitude && obra.longitude
-                        ? `https://www.google.com/maps/search/?api=1&query=${obra.latitude},${obra.longitude}`
-                        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                            obra.endereco || obra.localizacao || obra.nome
-                          )}`
-                    }
-                  />
+              <iframe
+  width="100%"
+  height="100%"
+  style={{ border: 0 }}
+  loading="lazy"
+  allowFullScreen
+  referrerPolicy="no-referrer-when-downgrade"
+  src={
+    obraHasCoords
+      ? `https://www.google.com/maps?q=${obra.latitude},${obra.longitude}&z=17&output=embed`
+      : `https://www.google.com/maps?q=${encodeURIComponent(obraBestAddress)}&z=17&output=embed`
+  }
+/>
                 </div>
               </Card>
 
@@ -1412,17 +1496,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
                   Abrir no Google Maps
                 </Button>
 
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={() => {
-                    const address = obra.endereco || obra.localizacao || obra.nome;
-                    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
-                      address
-                    )}`;
-                    window.open(url, '_blank');
-                  }}
-                >
+                <Button variant="secondary" className="w-full" onClick={openDirections}>
                   <Navigation size={16} className="mr-2" />
                   Obter direções
                 </Button>
@@ -1430,7 +1504,7 @@ export function ObraDetailsDrawer({ obra, onClose, onEdit }: ObraDetailsDrawerPr
 
               <Card className="p-4 bg-slate-50 dark:bg-slate-900/40 dark:border-slate-800">
                 <div className="text-xs text-slate-600 dark:text-slate-300">
-                  <strong>Dica:</strong> Clique em &quot;Obter direções&quot; para navegar até a obra usando o Google Maps.
+                  <strong>Dica:</strong> para navegação realmente exata, esta obra deve ter latitude e longitude guardadas.
                 </div>
               </Card>
             </>

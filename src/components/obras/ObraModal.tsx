@@ -58,6 +58,52 @@ function todayISO() {
   return new Date().toISOString().split('T')[0];
 }
 
+function clean(value?: string | null) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function hasValidCoords(address: AddressData) {
+  return Number.isFinite(Number(address.latitude)) && Number.isFinite(Number(address.longitude));
+}
+
+function buildEnderecoCompleto(address: AddressData) {
+  const rua = clean(address.rua);
+  const numeroPorta = clean(address.numeroPorta);
+  const codigoPostal = clean(address.codigoPostal);
+  const freguesia = clean(address.freguesia);
+  const concelho = clean(address.concelho);
+  const distrito = clean(address.distrito);
+
+  const linha1 = [rua, numeroPorta].filter(Boolean).join(' ').trim();
+
+  return [linha1, codigoPostal, freguesia, concelho, distrito, 'Portugal']
+    .filter(Boolean)
+    .join(', ');
+}
+
+function buildLocalizacao(address: AddressData, fallback?: string) {
+  return clean(address.concelho) || clean(address.freguesia) || clean(address.distrito) || clean(fallback);
+}
+
+function normalizeCoordinate(value?: string | number | null) {
+  if (value == null || value === '') return undefined;
+  const num = Number(String(value).replace(',', '.'));
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function normalizeAddress(address?: Partial<AddressData> | null): AddressData {
+  return {
+    rua: clean(address?.rua),
+    numeroPorta: clean(address?.numeroPorta),
+    codigoPostal: clean(address?.codigoPostal),
+    freguesia: clean(address?.freguesia),
+    concelho: clean(address?.concelho),
+    distrito: clean(address?.distrito),
+    latitude: normalizeCoordinate(address?.latitude),
+    longitude: normalizeCoordinate(address?.longitude),
+  };
+}
+
 export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps) {
   const { user } = useAuth();
 
@@ -85,18 +131,48 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
       freguesia: '',
       concelho: '',
       distrito: '',
+      latitude: undefined,
+      longitude: undefined,
     },
   });
 
-  // Preview: arquivo escolhido > URL salva no DB
-  useEffect(() => {
-    if (logoFile) {
-      const url = URL.createObjectURL(logoFile);
-      setPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-    setPreviewUrl(formData.logo_url || null);
+  const previewSrc = useMemo(() => {
+    if (logoFile) return URL.createObjectURL(logoFile);
+    return formData.logo_url || null;
   }, [logoFile, formData.logo_url]);
+
+  const normalizedAddress = useMemo(() => normalizeAddress(formData.address), [formData.address]);
+  const enderecoCompletoPreview = useMemo(() => buildEnderecoCompleto(normalizedAddress), [normalizedAddress]);
+  const hasCoords = useMemo(() => hasValidCoords(normalizedAddress), [normalizedAddress]);
+
+  const mapPreviewSrc = useMemo(() => {
+    if (hasCoords) {
+      return `https://www.google.com/maps?q=${normalizedAddress.latitude},${normalizedAddress.longitude}&z=18&output=embed`;
+    }
+
+    const query =
+      enderecoCompletoPreview ||
+      [
+        clean(formData.nome),
+        clean(normalizedAddress.concelho),
+        clean(normalizedAddress.distrito),
+        'Portugal',
+      ]
+        .filter(Boolean)
+        .join(', ');
+
+    if (!query) return '';
+
+    return `https://www.google.com/maps?q=${encodeURIComponent(query)}&z=16&output=embed`;
+  }, [hasCoords, normalizedAddress, enderecoCompletoPreview, formData.nome]);
+
+  useEffect(() => {
+    return () => {
+      if (previewSrc && logoFile) {
+        URL.revokeObjectURL(previewSrc);
+      }
+    };
+  }, [previewSrc, logoFile]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -104,7 +180,7 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
     loadEmpresas();
 
     if (obraId) {
-      loadObra();
+      void loadObra();
     } else {
       resetForm();
     }
@@ -143,16 +219,16 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
         data_inicio: data.data_inicio || todayISO(),
         data_fim_prevista: data.data_fim_prevista || '',
         descricao: data.descricao || '',
-        address: {
-          rua: data.rua || '',
-          numeroPorta: data.numero_porta || '',
-          codigoPostal: data.codigo_postal || '',
-          freguesia: data.freguesia || '',
-          concelho: data.concelho || '',
-          distrito: data.distrito || '',
-          latitude: data.latitude || undefined,
-          longitude: data.longitude || undefined,
-        },
+        address: normalizeAddress({
+          rua: data.rua,
+          numeroPorta: data.numero_porta,
+          codigoPostal: data.codigo_postal,
+          freguesia: data.freguesia,
+          concelho: data.concelho,
+          distrito: data.distrito,
+          latitude: data.latitude,
+          longitude: data.longitude,
+        }),
       });
 
       setLogoFile(null);
@@ -178,6 +254,8 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
         freguesia: '',
         concelho: '',
         distrito: '',
+        latitude: undefined,
+        longitude: undefined,
       },
     });
 
@@ -191,7 +269,6 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
     onClose();
   };
 
-  // ===== Upload compacto (sem dropzone gigante) =====
   const openFotoPicker = () => fileInputRef.current?.click();
 
   const handleFotoPicked = (file: File | null) => {
@@ -223,12 +300,74 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
     [empresas]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const updateAddress = (patch: Partial<AddressData>) => {
+    setFormData((prev) => ({
+      ...prev,
+      address: normalizeAddress({
+        ...prev.address,
+        ...patch,
+      }),
+    }));
+  };
 
-    // validação mínima objetiva do topo (campos required já cobrem muita coisa)
-    if (!formData.nome.trim() || !formData.cliente.trim() || !formData.data_inicio) {
+  const clearCoords = () => {
+    updateAddress({
+      latitude: undefined,
+      longitude: undefined,
+    });
+  };
+
+  const handleManualCoordinateChange =
+    (field: 'latitude' | 'longitude') => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value;
+      const normalized = raw === '' ? undefined : normalizeCoordinate(raw);
+
+      setFormData((prev) => ({
+        ...prev,
+        address: {
+          ...prev.address,
+          [field]: normalized,
+        },
+      }));
+    };
+
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+
+    if (!clean(formData.nome) || !clean(formData.cliente) || !formData.data_inicio) {
       toast.error('Preencha Nome da Obra, Cliente e Data de Início.');
+      return;
+    }
+
+    const normalized = normalizeAddress(formData.address);
+
+    const enderecoCompleto = buildEnderecoCompleto(normalized);
+    const localizacaoFinal = buildLocalizacao(normalized, formData.localizacao);
+
+    const hasAnyAddressData =
+      !!clean(normalized.rua) ||
+      !!clean(normalized.numeroPorta) ||
+      !!clean(normalized.codigoPostal) ||
+      !!clean(normalized.freguesia) ||
+      !!clean(normalized.concelho) ||
+      !!clean(normalized.distrito);
+
+    const hasExactAddressCore =
+      !!clean(normalized.rua) &&
+      !!clean(normalized.numeroPorta) &&
+      !!clean(normalized.codigoPostal) &&
+      !!clean(normalized.concelho);
+
+    if (hasAnyAddressData && !hasExactAddressCore) {
+      toast.error('Para guardar a morada exata da obra, preencha Rua, Nº da Porta, Código Postal e Concelho.');
+      return;
+    }
+
+    if (
+      (normalized.latitude != null && normalized.longitude == null) ||
+      (normalized.latitude == null && normalized.longitude != null)
+    ) {
+      toast.error('Preencha latitude e longitude juntas, ou deixe ambas vazias.');
       return;
     }
 
@@ -249,32 +388,33 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
         logoUrl = url;
       }
 
-      const enderecoCompleto = `${formData.address.rua}, ${formData.address.numeroPorta}, ${formData.address.codigoPostal} ${formData.address.concelho}`;
-
       const obraData = {
         logo_url: logoUrl,
-        nome: formData.nome,
-        cliente: formData.cliente,
-        localizacao: formData.address.concelho || formData.localizacao,
-        endereco: enderecoCompleto,
+        nome: clean(formData.nome),
+        cliente: clean(formData.cliente),
+        localizacao: localizacaoFinal || null,
+        endereco: enderecoCompleto || null,
 
-        rua: formData.address.rua,
-        numero_porta: formData.address.numeroPorta,
-        codigo_postal: formData.address.codigoPostal,
-        freguesia: formData.address.freguesia,
-        concelho: formData.address.concelho,
-        distrito: formData.address.distrito,
-        latitude: formData.address.latitude || null,
-        longitude: formData.address.longitude || null,
+        rua: clean(normalized.rua) || null,
+        numero_porta: clean(normalized.numeroPorta) || null,
+        codigo_postal: clean(normalized.codigoPostal) || null,
+        freguesia: clean(normalized.freguesia) || null,
+        concelho: clean(normalized.concelho) || null,
+        distrito: clean(normalized.distrito) || null,
+        latitude: hasValidCoords(normalized) ? Number(normalized.latitude) : null,
+        longitude: hasValidCoords(normalized) ? Number(normalized.longitude) : null,
 
-        empresa_id: formData.empresa_id || null,
-        status: formData.status,
+        empresa_id: clean(formData.empresa_id) || null,
+        status: clean(formData.status) || 'ativa',
 
         data_inicio: formData.data_inicio || null,
         data_fim_prevista: formData.data_fim_prevista || null,
 
-        descricao: formData.descricao,
+        descricao: clean(formData.descricao) || null,
       };
+
+      console.log('DEBUG address before save:', normalized);
+      console.log('DEBUG obraData before save:', obraData);
 
       if (obraId) {
         const { error } = await supabase.from('obras').update(obraData).eq('id', obraId);
@@ -283,7 +423,12 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
         toast.success('Obra atualizada com sucesso');
 
         if (user) {
-          await createNotification(user.id, 'obra', 'Obra atualizada', `A obra "${formData.nome}" foi atualizada.`);
+          await createNotification(
+            user.id,
+            'obra',
+            'Obra atualizada',
+            `A obra "${clean(formData.nome)}" foi atualizada.`
+          );
         }
       } else {
         const { error } = await supabase.from('obras').insert([obraData]);
@@ -296,7 +441,7 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
             user.id,
             'obra',
             'Nova obra criada',
-            `A obra "${formData.nome}" foi criada para o cliente ${formData.cliente}.`
+            `A obra "${clean(formData.nome)}" foi criada para o cliente ${clean(formData.cliente)}.`
           );
         }
       }
@@ -304,6 +449,7 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
       onSuccess();
       handleClose();
     } catch (error: any) {
+      console.error('Erro ao salvar obra:', error);
       toast.error(error?.message || 'Erro ao salvar obra');
     } finally {
       setLoading(false);
@@ -327,8 +473,12 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* ===== FOTO DA OBRA (compacto) ===== */}
+      <form
+        onSubmit={(e) => {
+          void handleSubmit(e);
+        }}
+        className="space-y-6"
+      >
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Foto da Obra</h3>
@@ -344,14 +494,13 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4 items-start">
-            {/* Preview (mais “site”, sem dropzone gigante) */}
             <div className="space-y-2">
               <div
                 className="w-full aspect-video rounded-xl border border-neutral-200 dark:border-neutral-800 overflow-hidden bg-neutral-50 dark:bg-neutral-900"
                 title="Pré-visualização"
               >
-                {previewUrl ? (
-                  <img src={previewUrl} alt="Foto da obra" className="w-full h-full object-cover" />
+                {previewSrc ? (
+                  <img src={previewSrc} alt="Foto da obra" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-xs text-neutral-500 dark:text-neutral-400">
                     Sem foto
@@ -361,10 +510,10 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
 
               <div className="flex gap-2">
                 <Button type="button" variant="secondary" onClick={openFotoPicker} className="w-full">
-                  {previewUrl ? 'Alterar foto' : 'Carregar foto'}
+                  {previewSrc ? 'Alterar foto' : 'Carregar foto'}
                 </Button>
 
-                {previewUrl ? (
+                {previewSrc ? (
                   <Button type="button" variant="secondary" onClick={removeFoto} className="w-full">
                     Remover
                   </Button>
@@ -372,7 +521,6 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
               </div>
             </div>
 
-            {/* Campos principais */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
                 label="Nome da Obra"
@@ -424,9 +572,102 @@ export function ObraModal({ isOpen, onClose, onSuccess, obraId }: ObraModalProps
           </div>
         </section>
 
-        <div className="border-t border-slate-200 pt-6">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Endereço da Obra</h3>
-          <AddressAutocomplete value={formData.address} onChange={(address) => setFormData({ ...formData, address })} />
+        <div className="border-t border-slate-200 pt-6 space-y-5">
+          <h3 className="text-lg font-semibold text-slate-900 mb-1">Endereço da Obra</h3>
+
+          <AddressAutocomplete
+            value={formData.address}
+            onChange={(address) =>
+              setFormData((prev) => ({
+                ...prev,
+                address: normalizeAddress(address),
+              }))
+            }
+          />
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">Coordenadas manuais</h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  Se o endereço automático errar, cole ou ajuste manualmente latitude e longitude.
+                </p>
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={clearCoords}
+                  disabled={loading}
+                >
+                  Limpar coordenadas
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Latitude"
+                value={normalizedAddress.latitude != null ? String(normalizedAddress.latitude) : ''}
+                onChange={handleManualCoordinateChange('latitude')}
+                placeholder="Ex: 38.70407242289292"
+              />
+
+              <Input
+                label="Longitude"
+                value={normalizedAddress.longitude != null ? String(normalizedAddress.longitude) : ''}
+                onChange={handleManualCoordinateChange('longitude')}
+                placeholder="Ex: -9.420752896585403"
+              />
+            </div>
+
+            {hasCoords ? (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="text-sm font-medium text-emerald-900">Coordenadas ativas</div>
+                <div className="text-xs text-emerald-700 mt-1">
+                  Lat: {Number(normalizedAddress.latitude).toFixed(12)}, Lng: {Number(normalizedAddress.longitude).toFixed(12)}
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="text-sm font-medium text-amber-900">Sem coordenadas definidas</div>
+                <div className="text-xs text-amber-700 mt-1">
+                  Pode usar a busca automática acima ou colar manualmente os valores certos.
+                </div>
+              </div>
+            )}
+
+            {mapPreviewSrc ? (
+              <div className="rounded-2xl overflow-hidden border border-slate-200 bg-white">
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                  <div className="text-sm font-medium text-slate-900">Pré-visualização do ponto</div>
+                  <div className="text-xs text-slate-500 mt-1 break-all">
+                    {enderecoCompletoPreview || buildLocalizacao(normalizedAddress, formData.localizacao) || 'Sem morada suficiente'}
+                  </div>
+                </div>
+
+                <div className="h-[280px]">
+                  <iframe
+                    title="Pré-visualização da localização da obra"
+                    width="100%"
+                    height="100%"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    allowFullScreen
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={mapPreviewSrc}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
+              <div className="text-xs text-blue-900">
+                <strong>Dica:</strong> para obras novas ou terrenos, o ideal é confirmar no Google Maps e colar aqui a latitude e longitude corretas manualmente.
+              </div>
+            </div>
+          </div>
         </div>
 
         <Textarea

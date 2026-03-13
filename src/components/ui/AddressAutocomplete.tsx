@@ -17,6 +17,7 @@ type SuggestSource = 'geoapi' | 'nominatim';
 
 interface AddressSuggestion {
   rua: string;
+  numeroPorta?: string;
   codigoPostal: string;
   freguesia: string;
   concelho: string;
@@ -33,7 +34,7 @@ interface AddressAutocompleteProps {
 }
 
 function normalizeCP(raw: string) {
-  const digits = raw.replace(/\D/g, '').slice(0, 7); // CP4+CP3
+  const digits = raw.replace(/\D/g, '').slice(0, 7);
   if (digits.length <= 4) return digits;
   return `${digits.slice(0, 4)}-${digits.slice(4)}`;
 }
@@ -46,6 +47,59 @@ function isCPQuery(q: string) {
   return /^\d{4}-?\d{0,3}$/.test(q.trim());
 }
 
+function clean(value?: string | null) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function extractDoorNumber(text: string) {
+  const s = clean(text);
+  if (!s) return '';
+
+  const match =
+    s.match(/\b(\d{1,5}[A-Za-z]?)\b/) ||
+    s.match(/\b(n[ºo°]?\s*\d{1,5}[A-Za-z]?)\b/i);
+
+  return match ? clean(match[1].replace(/^n[ºo°]?\s*/i, '')) : '';
+}
+
+function splitRoadAndNumber(rawRoad: string) {
+  const road = clean(rawRoad);
+  if (!road) return { rua: '', numeroPorta: '' };
+
+  const match = road.match(/^(.*?)(?:\s+(\d{1,5}[A-Za-z]?))$/);
+  if (!match) {
+    return { rua: road, numeroPorta: '' };
+  }
+
+  return {
+    rua: clean(match[1]),
+    numeroPorta: clean(match[2]),
+  };
+}
+
+async function geocodeExactAddress(query: string, signal: AbortSignal) {
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&countrycodes=pt&q=${encodeURIComponent(
+    query
+  )}`;
+
+  const resp = await fetch(url, {
+    signal,
+    headers: { 'Accept-Language': 'pt-PT,pt;q=0.9' },
+  });
+
+  if (!resp.ok) return null;
+
+  const rows = (await resp.json()) as any[];
+  if (!rows?.length) return null;
+
+  const r = rows[0];
+  return {
+    latitude: r.lat ? parseFloat(r.lat) : undefined,
+    longitude: r.lon ? parseFloat(r.lon) : undefined,
+    raw: r,
+  };
+}
+
 export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
@@ -56,7 +110,6 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | null>(null);
 
-  // fechar dropdown ao clicar fora
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
@@ -78,6 +131,7 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
     onChange({
       ...value,
       rua: s.rua || value.rua,
+      numeroPorta: clean(s.numeroPorta) || value.numeroPorta,
       codigoPostal: s.codigoPostal || value.codigoPostal,
       freguesia: s.freguesia || value.freguesia,
       concelho: s.concelho || value.concelho,
@@ -88,34 +142,68 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
   };
 
   const lookupPostal = async (cp: string, signal: AbortSignal) => {
-    // tenta geoapi -> fallback nominatim
-    const clean = cp.replace('-', '');
+    const cleanCp = cp.replace('-', '');
 
-    // 1) geoapi
     try {
-      const resp = await fetch(`https://json.geoapi.pt/cp/${clean}?json=1`, { signal });
+      const resp = await fetch(`https://json.geoapi.pt/cp/${cleanCp}?json=1`, { signal });
+
       if (resp.ok) {
         const data = await resp.json();
+
         if (data && !data.erro) {
           const fullCP = `${data.CP4}-${data.CP3}`;
+          const designacao = clean(String(data.Designacao || data.rua || ''));
+          const freguesia = clean(String(data.Freguesia || ''));
+          const concelho = clean(String(data.Concelho || ''));
+          const distrito = clean(String(data.Distrito || ''));
+
+          const { rua, numeroPorta } = splitRoadAndNumber(designacao);
+
+          const geocodeQuery = [
+            [rua, numeroPorta].filter(Boolean).join(' ').trim(),
+            fullCP,
+            concelho,
+            distrito,
+            'Portugal',
+          ]
+            .filter(Boolean)
+            .join(', ');
+
+          let latitude: number | undefined;
+          let longitude: number | undefined;
+
+          if (geocodeQuery) {
+            try {
+              const geo = await geocodeExactAddress(geocodeQuery, signal);
+              latitude = geo?.latitude;
+              longitude = geo?.longitude;
+            } catch (e: any) {
+              if (e?.name === 'AbortError') throw e;
+            }
+          }
+
           const s: AddressSuggestion = {
-            rua: String(data.Designacao || data.rua || '').trim(),
+            rua,
+            numeroPorta,
             codigoPostal: fullCP,
-            freguesia: String(data.Freguesia || '').trim(),
-            concelho: String(data.Concelho || '').trim(),
-            distrito: String(data.Distrito || '').trim(),
-            label: `${fullCP} • ${String(data.Concelho || '').trim()}, ${String(data.Distrito || '').trim()}`,
+            freguesia,
+            concelho,
+            distrito,
+            latitude,
+            longitude,
+            label:
+              geocodeQuery ||
+              `${fullCP} • ${concelho}${distrito ? `, ${distrito}` : ''}`,
             source: 'geoapi',
           };
+
           return [s];
         }
       }
     } catch (e: any) {
       if (e?.name === 'AbortError') throw e;
-      // cai para fallback
     }
 
-    // 2) fallback nominatim (por CP)
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=pt&q=${encodeURIComponent(
       `${cp} Portugal`
     )}`;
@@ -128,24 +216,44 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
     if (!resp2.ok) return [];
 
     const rows = (await resp2.json()) as any[];
+
     const mapped: AddressSuggestion[] = (rows || [])
       .map((r) => {
         const addr = r.address || {};
-        const codigoPostal = String(addr.postcode || '').trim();
-        const concelho = String(addr.county || addr.city || addr.town || addr.village || '').trim();
-        const distrito = String(addr.state || addr.region || '').trim();
-        const freguesia = String(addr.suburb || addr.quarter || addr.neighbourhood || addr.village || '').trim();
-        const rua = String(addr.road || addr.pedestrian || addr.residential || addr.neighbourhood || r.name || '').trim();
+        const codigoPostal = clean(String(addr.postcode || ''));
+        const concelho = clean(
+          String(addr.county || addr.city || addr.town || addr.village || '')
+        );
+        const distrito = clean(String(addr.state || addr.region || ''));
+        const freguesia = clean(
+          String(addr.suburb || addr.quarter || addr.neighbourhood || addr.village || '')
+        );
+
+        const rawRoad = clean(
+          String(
+            addr.road ||
+              addr.pedestrian ||
+              addr.residential ||
+              addr.neighbourhood ||
+              r.name ||
+              ''
+          )
+        );
+
+        const split = splitRoadAndNumber(rawRoad);
+        const numeroPorta =
+          split.numeroPorta || extractDoorNumber(String(r.display_name || ''));
 
         return {
-          rua,
+          rua: split.rua || rawRoad,
+          numeroPorta,
           codigoPostal,
           concelho,
           distrito,
           freguesia,
           latitude: r.lat ? parseFloat(r.lat) : undefined,
           longitude: r.lon ? parseFloat(r.lon) : undefined,
-          label: String(r.display_name || '').trim(),
+          label: clean(String(r.display_name || '')),
           source: 'nominatim' as const,
         };
       })
@@ -155,7 +263,6 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
   };
 
   const searchText = async (q: string, signal: AbortSignal) => {
-    // pesquisa real por texto (rua/localidade), não mock
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&countrycodes=pt&q=${encodeURIComponent(
       q
     )}`;
@@ -168,33 +275,47 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
     if (!resp.ok) return [];
 
     const rows = (await resp.json()) as any[];
+
     const mapped: AddressSuggestion[] = (rows || [])
       .map((r) => {
         const addr = r.address || {};
-        const codigoPostal = String(addr.postcode || '').trim();
-        const concelho = String(addr.county || addr.city || addr.town || addr.village || '').trim();
-        const distrito = String(addr.state || addr.region || '').trim();
-        const freguesia = String(addr.suburb || addr.quarter || addr.neighbourhood || addr.village || '').trim();
+        const codigoPostal = clean(String(addr.postcode || ''));
+        const concelho = clean(
+          String(addr.county || addr.city || addr.town || addr.village || '')
+        );
+        const distrito = clean(String(addr.state || addr.region || ''));
+        const freguesia = clean(
+          String(addr.suburb || addr.quarter || addr.neighbourhood || addr.village || '')
+        );
 
-        const rua = String(
-          addr.road ||
-            addr.pedestrian ||
-            addr.residential ||
-            addr.neighbourhood ||
-            addr.hamlet ||
-            r.name ||
-            ''
-        ).trim();
+        const rawRoad = clean(
+          String(
+            addr.road ||
+              addr.pedestrian ||
+              addr.residential ||
+              addr.neighbourhood ||
+              addr.hamlet ||
+              r.name ||
+              ''
+          )
+        );
+
+        const split = splitRoadAndNumber(rawRoad);
+        const numeroPorta =
+          split.numeroPorta ||
+          extractDoorNumber(String(addr.house_number || '')) ||
+          extractDoorNumber(String(r.display_name || ''));
 
         return {
-          rua,
+          rua: split.rua || rawRoad,
+          numeroPorta,
           codigoPostal,
           concelho,
           distrito,
           freguesia,
           latitude: r.lat ? parseFloat(r.lat) : undefined,
           longitude: r.lon ? parseFloat(r.lon) : undefined,
-          label: String(r.display_name || '').trim(),
+          label: clean(String(r.display_name || '')),
           source: 'nominatim' as const,
         };
       })
@@ -221,18 +342,20 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
       abortRef.current = controller;
 
       setLoading(true);
+
       try {
         let results: AddressSuggestion[] = [];
 
         if (isCPQuery(query)) {
           const cp = normalizeCP(query);
-          // se ainda não está completo, não chama geoapi para não spammar
+
           if (cp.replace('-', '').length < 7) {
             setSuggestions([]);
             setShowSuggestions(false);
             setLoading(false);
             return;
           }
+
           results = await lookupPostal(cp, controller.signal);
         } else {
           results = await searchText(query, controller.signal);
@@ -254,17 +377,19 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
 
   const selectSuggestion = (s: AddressSuggestion) => {
     setFromSuggestion(s);
-    setSearchQuery('');
+    setSearchQuery(s.label || '');
     setShowSuggestions(false);
     setSuggestions([]);
   };
 
-  // ======= CHAVE: buscar também quando digitar no campo "Código Postal" =======
   const handleCodigoPostalChange = (raw: string) => {
     const cp = normalizeCP(raw);
-    onChange({ ...value, codigoPostal: cp });
 
-    // se estiver completo, tenta preencher concelho/distrito/freguesia automaticamente
+    onChange({
+      ...value,
+      codigoPostal: cp,
+    });
+
     if (isFullCP(cp)) {
       stopPending();
 
@@ -273,14 +398,12 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
 
       (async () => {
         setLoading(true);
+
         try {
           const results = await lookupPostal(cp, controller.signal);
 
           if (results.length > 0) {
-            // aplica o primeiro (mais confiável)
             setFromSuggestion(results[0]);
-
-            // opcional: mostrar dropdown com alternativas
             setSuggestions(results);
             setShowSuggestions(true);
           } else {
@@ -302,7 +425,6 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
 
   return (
     <div className="space-y-4">
-      {/* Campo de pesquisa (opcional) */}
       <div ref={wrapperRef} className="relative">
         <label className="block text-sm font-medium text-slate-700 mb-2">
           <MapPin size={14} className="inline mr-1" />
@@ -333,13 +455,15 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
             ) : (
               suggestionList.map((s, index) => (
                 <button
-                  key={`${s.source}-${index}-${s.codigoPostal}-${s.concelho}`}
+                  key={`${s.source}-${index}-${s.codigoPostal}-${s.concelho}-${s.latitude ?? 'no-lat'}`}
                   type="button"
                   onClick={() => selectSuggestion(s)}
                   className="w-full text-left px-4 py-3 hover:bg-slate-50 transition border-b border-slate-100 last:border-0"
                 >
                   <div className="font-medium text-slate-900">
-                    {s.rua ? s.rua : (s.codigoPostal ? s.codigoPostal : 'Endereço')}
+                    {[s.rua, s.numeroPorta].filter(Boolean).join(' ').trim() ||
+                      s.codigoPostal ||
+                      'Endereço'}
                   </div>
                   <div className="text-xs text-slate-500 mt-1">
                     {s.codigoPostal ? `${s.codigoPostal} • ` : ''}
@@ -354,7 +478,6 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
         )}
       </div>
 
-      {/* Campos manuais */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Input
           label="Rua / Avenida *"
@@ -406,7 +529,6 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
         />
       </div>
 
-      {/* Coordenadas */}
       {value.latitude != null && value.longitude != null && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
           <div className="flex items-center gap-2 text-sm text-emerald-900">
@@ -421,8 +543,8 @@ export function AddressAutocomplete({ value, onChange }: AddressAutocompleteProp
 
       <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <div className="text-xs text-blue-900">
-          <strong>Dica:</strong> Você pode digitar o CP no campo “Buscar Endereço” ou diretamente em “Código Postal”.
-          Se o serviço não devolver resultados, preencha manualmente.
+          <strong>Dica:</strong> Pode digitar o CP no campo “Buscar Endereço” ou diretamente em “Código Postal”.
+          Para localização exata, o ideal é pesquisar também a rua e o número.
         </div>
       </div>
     </div>
