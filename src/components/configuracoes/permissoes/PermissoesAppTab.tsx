@@ -6,24 +6,18 @@ import {
   Building2,
   Search,
   RefreshCcw,
-  Link2,
   Unlink2,
   Plus,
   Copy,
   CheckCircle2,
   XCircle,
   UserCircle2,
-  X as XIcon,
-  Mail,
-  Phone,
-  Shield,
   KeyRound,
 } from 'lucide-react';
 
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Badge } from '../../ui/Badge';
-import { Input } from '../../ui/Input';
 import { supabase } from '../../../lib/supabase';
 import { toast } from '../../../lib/toast';
 
@@ -151,6 +145,7 @@ async function selectObrasSmart(): Promise<{ data: ObraRow[]; error: any }> {
     const res = await req;
     if (!res.error) return { data: (res.data as any[]) as ObraRow[], error: null };
   }
+
   const last = await tries[tries.length - 1];
   return { data: [], error: last.error };
 }
@@ -165,56 +160,30 @@ async function copyToClipboard(text: string) {
   }
 }
 
-// ======= NOVO: tipos e helper do create-user
-type CreateUserMode = 'invite' | 'password';
-
-type CreateUserBody = {
-  colaborador_id: string;
-  mode: CreateUserMode;
-  email: string;
-  password?: string;
-  nome_completo: string;
-  telefone?: string | null;
-  categoria?: string | null;
-  role?: string;
-  idioma?: string;
-};
-
 export function PermissoesAppTab() {
   const [loading, setLoading] = useState(true);
 
-  // Directory
   const [colabs, setColabs] = useState<ColaboradorRow[]>([]);
   const [obras, setObras] = useState<ObraRow[]>([]);
 
-  // Acesso do App (link/unlink)
   const [colabSearch, setColabSearch] = useState('');
   const [selectedColabId, setSelectedColabId] = useState<string>('');
   const [linking, setLinking] = useState(false);
+  const [creating, setCreating] = useState(false);
 
-  // Encarregados por obra
+  const [accessFilter, setAccessFilter] = useState<'sem_acesso' | 'com_acesso'>('sem_acesso');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
   const [obraSearch, setObraSearch] = useState('');
   const [selectedObraId, setSelectedObraId] = useState<string>('');
   const [encarregados, setEncarregados] = useState<ObraEncarregadoRow[]>([]);
   const [loadingEnc, setLoadingEnc] = useState(false);
   const [savingEnc, setSavingEnc] = useState(false);
 
-  // Picker para adicionar encarregado sem UID
   const [encPickerOpen, setEncPickerOpen] = useState(false);
   const [encPersonQuery, setEncPersonQuery] = useState('');
   const [encSelectedUserId, setEncSelectedUserId] = useState<string>('');
-
-  // ===== NOVO: modal criar acesso
-  const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
-
-  const [createMode, setCreateMode] = useState<CreateUserMode>('invite');
-  const [createNome, setCreateNome] = useState('');
-  const [createEmail, setCreateEmail] = useState('');
-  const [createTelefone, setCreateTelefone] = useState('');
-  const [createCategoria, setCreateCategoria] = useState('');
-  const [createRole, setCreateRole] = useState('operacoes');
-  const [createPassword, setCreatePassword] = useState('');
 
   useEffect(() => {
     loadAll();
@@ -255,22 +224,41 @@ export function PermissoesAppTab() {
     [obras, selectedObraId]
   );
 
+  const hasAppAccess = (c: ColaboradorRow | null) => !!c?.user_id && isUuid(String(c.user_id).trim());
+  const isActive = (c: ColaboradorRow | null) => String(c?.status ?? '').toLowerCase() === 'ativo';
+
+  useEffect(() => {
+    if (!selectedColab) {
+      setLoginEmail('');
+      setLoginPassword('');
+      return;
+    }
+
+    setLoginEmail(String(selectedColab.email ?? '').trim());
+    setLoginPassword('');
+  }, [selectedColabId, selectedColab]);
+
   const colabsFiltered = useMemo(() => {
     const s = colabSearch.trim().toLowerCase();
-    const list = colabs;
-    if (!s) return list.slice(0, 60);
 
-    return list
-      .filter((c) => {
+    let list = colabs.filter((c) =>
+      accessFilter === 'sem_acesso' ? !hasAppAccess(c) : hasAppAccess(c)
+    );
+
+    if (s) {
+      list = list.filter((c) => {
         const hay = `${c.nome_completo ?? ''} ${c.email ?? ''} ${c.status ?? ''} ${c.categoria ?? ''}`.toLowerCase();
         return hay.includes(s);
-      })
-      .slice(0, 60);
-  }, [colabs, colabSearch]);
+      });
+    }
+
+    return list.slice(0, 100);
+  }, [colabs, colabSearch, accessFilter]);
 
   const obrasFiltered = useMemo(() => {
     const s = obraSearch.trim().toLowerCase();
     const list = obras;
+
     if (!s) return list.slice(0, 60);
 
     return list
@@ -281,7 +269,6 @@ export function PermissoesAppTab() {
       .slice(0, 60);
   }, [obras, obraSearch]);
 
-  // Diretório por user_id (para mapear encarregados -> perfil)
   const colabByUserId = useMemo(() => {
     const map = new Map<string, ColaboradorRow>();
     for (const c of colabs) {
@@ -291,11 +278,14 @@ export function PermissoesAppTab() {
     return map;
   }, [colabs]);
 
-  // Apenas colaboradores com user_id ligado e ativos (para atribuir encarregado)
   const encCandidates = useMemo(() => {
     const base = colabs
       .filter((c) => isUuid(String(c.user_id ?? '').trim()))
-      .filter((c) => String(c.status ?? '').toLowerCase() === 'ativo' || String(c.status ?? '').toLowerCase() === 'active');
+      .filter(
+        (c) =>
+          String(c.status ?? '').toLowerCase() === 'ativo' ||
+          String(c.status ?? '').toLowerCase() === 'active'
+      );
 
     const q = encPersonQuery.trim().toLowerCase();
     if (!q) return base.slice(0, 10);
@@ -305,112 +295,90 @@ export function PermissoesAppTab() {
       .slice(0, 10);
   }, [colabs, encPersonQuery]);
 
-  // ===== NOVO: criar acesso (Edge Function)
- const openCreateModal = (prefill?: Partial<CreateUserBody>) => {
-  const c = selectedColab;
-
-  setCreateMode(prefill?.mode ?? 'invite');
-  setCreateNome(prefill?.nome_completo ?? c?.nome_completo ?? '');
-  setCreateEmail(prefill?.email ?? c?.email ?? '');
-  setCreateTelefone(String(prefill?.telefone ?? ''));
-  setCreateCategoria(String(prefill?.categoria ?? c?.categoria ?? ''));
-  setCreateRole(prefill?.role ?? 'operacoes');
-  setCreatePassword('');
-  setCreateOpen(true);
-};
-
- const createAccess = async () => {
-  const email = createEmail.trim().toLowerCase();
-  const nome = createNome.trim();
-
-  if (!selectedColab) {
-    toast.error('Selecione primeiro um colaborador.');
-    return;
-  }
-
-  if (!email || !email.includes('@')) {
-    toast.error('Email inválido.');
-    return;
-  }
-
-  if (!nome) {
-    toast.error('Nome completo é obrigatório.');
-    return;
-  }
-
-  if (createMode === 'password' && createPassword.trim().length < 8) {
-    toast.error('Senha temporária deve ter pelo menos 8 caracteres.');
-    return;
-  }
-
-  if (selectedColab.user_id && isUuid(String(selectedColab.user_id))) {
-    toast.error('Este colaborador já tem acesso ao app.');
-    return;
-  }
-
-  setCreating(true);
-  try {
-    const body = {
-      colaborador_id: selectedColab.id,
-      email,
-      nome_completo: nome,
-      telefone: createTelefone.trim() || null,
-      categoria: createCategoria.trim() || null,
-      role: (createRole || 'operacoes').trim(),
-      mode: createMode,
-      password: createMode === 'password' ? createPassword : undefined,
-    };
-
-    const res = await supabase.functions.invoke('create-colaborador-access', {
-      body,
-    });
-
-    if (res.error) {
-      console.error(res.error);
-      toast.error(res.error.message || 'Falha ao criar acesso.');
+  const createAccess = async () => {
+    if (!selectedColab) {
+      toast.error('Selecione primeiro um colaborador.');
       return;
     }
 
-    const payload = res.data as any;
+    const email = loginEmail.trim().toLowerCase();
+    const password = loginPassword.trim();
+    const nome = String(selectedColab.nome_completo ?? '').trim();
 
-    if (!payload?.ok) {
-      toast.error(payload?.error || 'Falha ao criar acesso.');
+    if (!email || !email.includes('@')) {
+      toast.error('Email inválido.');
       return;
     }
 
-    if (payload?.temporary_password) {
-      toast.success(`Acesso criado. Senha temporária: ${payload.temporary_password}`);
-    } else if (createMode === 'invite') {
-      toast.success('Acesso criado e convite enviado.');
-    } else {
-      toast.success('Acesso criado com sucesso.');
+    if (!nome) {
+      toast.error('Colaborador sem nome válido.');
+      return;
     }
 
-    const reload = await selectColaboradoresSmart();
-    if (!reload.error) {
-      setColabs(reload.data);
+    if (password.length < 8) {
+      toast.error('Senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
 
-      const updated =
-        reload.data.find((c) => c.id === selectedColab.id) ??
-        reload.data.find((c) => String(c.email ?? '').trim().toLowerCase() === email) ??
-        null;
+    if (!isActive(selectedColab)) {
+      toast.error('Não crie acesso para colaborador inativo/baixa.');
+      return;
+    }
 
-      if (updated) {
-        setSelectedColabId(updated.id);
+    if (selectedColab.user_id && isUuid(String(selectedColab.user_id))) {
+      toast.error('Este colaborador já tem acesso.');
+      return;
+    }
+
+    setCreating(true);
+    try {
+     const res = await supabase.functions.invoke('admin-users', {
+  body: {
+    action: 'create_colaborador_access',
+    colaborador_id: selectedColab.id,
+    mode: 'password',
+    email,
+    password,
+    nome_completo: nome,
+    telefone: null,
+    categoria: selectedColab.categoria ?? null,
+    role: 'operacoes',
+    idioma: 'pt',
+  },
+});
+
+      if (res.error) {
+        console.error(res.error);
+        toast.error(res.error.message || 'Falha ao criar acesso.');
+        return;
       }
+
+      const payload = res.data as any;
+
+      if (!payload?.ok) {
+        toast.error(payload?.error || 'Falha ao criar acesso.');
+        return;
+      }
+
+      toast.success('Login criado com sucesso.');
+
+      const reload = await selectColaboradoresSmart();
+      if (!reload.error) {
+        setColabs(reload.data);
+        const updated = reload.data.find((c) => c.id === selectedColab.id) ?? null;
+        if (updated) setSelectedColabId(updated.id);
+      }
+
+      setLoginPassword('');
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || 'Falha inesperada ao criar acesso.');
+    } finally {
+      setCreating(false);
     }
+  };
 
-    setCreateOpen(false);
-  } catch (e: any) {
-    console.error(e);
-    toast.error(e?.message || 'Falha inesperada ao criar acesso.');
-  } finally {
-    setCreating(false);
-  }
-};
-
-  // ===== Acesso App: link/unlink (mantive seu unlink como está)
-  const linkAccess = async (mode: 'link' | 'unlink') => {
+  const removeAccess = async () => {
     if (!selectedColab) {
       toast.error('Selecione um colaborador.');
       return;
@@ -418,31 +386,12 @@ export function PermissoesAppTab() {
 
     const currentUid = String(selectedColab.user_id ?? '').trim();
 
-    if (mode === 'link') {
-      // NOVO comportamento: se não tem acesso ainda, abre modal pre-preenchido
-      // (na prática, você vai usar o "Create" mesmo. “Ligar via UID” pode virar um segundo modal depois)
-      if (isUuid(currentUid)) {
-        toast.error('Este colaborador já tem acesso ao app.');
-        return;
-      }
-      openCreateModal({
-        email: selectedColab.email ?? '',
-        nome_completo: selectedColab.nome_completo ?? '',
-        telefone: null,
-        categoria: selectedColab.categoria ?? null,
-        role: 'operacoes',
-        mode: 'invite',
-      });
-      return;
-    }
-
-    // unlink
     if (!isUuid(currentUid)) {
       toast.error('Este colaborador já está sem acesso.');
       return;
     }
 
-    const ok = confirm('Remover acesso ao app deste colaborador? (user_id ficará nulo)');
+    const ok = confirm('Remover acesso ao app deste colaborador?');
     if (!ok) return;
 
     setLinking(true);
@@ -458,20 +407,21 @@ export function PermissoesAppTab() {
         return;
       }
 
-      toast.success('Acesso removido');
+      toast.success('Acesso removido.');
+
       const reload = await selectColaboradoresSmart();
-      if (reload.error) {
-        console.error(reload.error);
-        toast.error('Não foi possível atualizar a lista de colaboradores.');
-      } else {
+      if (!reload.error) {
         setColabs(reload.data);
+        const updated = reload.data.find((c) => c.id === selectedColab.id) ?? null;
+        if (updated) setSelectedColabId(updated.id);
       }
+
+      setAccessFilter('sem_acesso');
     } finally {
       setLinking(false);
     }
   };
 
-  // ===== Encarregados por obra
   useEffect(() => {
     if (!selectedObraId) {
       setEncarregados([]);
@@ -542,7 +492,7 @@ export function PermissoesAppTab() {
           toast.error('Falha ao reativar encarregado (RLS).');
           return;
         }
-        toast.success('Encarregado reativado');
+        toast.success('Encarregado reativado.');
       } else {
         const ins = await supabase.from('obra_encarregados').insert({
           obra_id: obraId,
@@ -557,7 +507,7 @@ export function PermissoesAppTab() {
           toast.error('Falha ao adicionar encarregado (RLS).');
           return;
         }
-        toast.success('Encarregado adicionado');
+        toast.success('Encarregado adicionado.');
       }
 
       setEncSelectedUserId('');
@@ -589,120 +539,156 @@ export function PermissoesAppTab() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#0B4F8A]" />
+        <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-[#0B4F8A]" />
       </div>
     );
   }
 
-  const hasAppAccess = (c: ColaboradorRow | null) => !!c?.user_id && isUuid(String(c.user_id).trim());
-  const isActive = (c: ColaboradorRow | null) => String(c?.status ?? '').toLowerCase() === 'ativo';
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <Card className={`p-5 ${cardBase}`}>
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3">
-            <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
               <Smartphone size={18} className="text-slate-700 dark:text-slate-200" />
             </div>
             <div>
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">App: Acessos e Gestão</div>
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Acesso ao app = colaborador com <span className="font-semibold">user_id</span> ligado e status ativo. Gestão = encarregado por obra.
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                App: Acessos e Gestão
+              </div>
+              <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Acesso ao app = colaborador com <span className="font-semibold">user_id</span> ligado e status ativo.
+                Gestão = encarregado por obra.
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 justify-end">
+          <div className="flex items-center justify-end gap-2">
             <Button variant="secondary" onClick={loadAll}>
               <RefreshCcw size={16} className="mr-2" />
               Atualizar
             </Button>
-
-            <Button onClick={() => openCreateModal()}>
-              <Plus size={16} className="mr-2" />
-              Criar acesso
-            </Button>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30">
             <div className="text-xs text-slate-500 dark:text-slate-400">Colaboradores</div>
             <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{colabs.length}</div>
           </div>
 
-          <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30">
             <div className="text-xs text-slate-500 dark:text-slate-400">Com acesso ao app</div>
             <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
               {colabs.filter((c) => hasAppAccess(c)).length}
             </div>
           </div>
 
-          <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30">
             <div className="text-xs text-slate-500 dark:text-slate-400">Obras</div>
             <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{obras.length}</div>
           </div>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* ===== Acesso do colaborador ===== */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card className={`p-5 ${cardBase}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
               <Users size={16} className="text-slate-700 dark:text-slate-200" />
               <div>
-                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Acesso do Colaborador</div>
-                <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Aqui você vê quem está “com acesso” e consegue remover o vínculo ou criar o acesso.
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Acesso do Colaborador
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Escolha quem está sem acesso para criar login ou quem já tem acesso para remover.
                 </div>
               </div>
             </div>
             <Badge variant="warning">Mobile</Badge>
           </div>
 
-          <div className="mt-4 relative">
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAccessFilter('sem_acesso')}
+              className={[
+                'rounded-xl border px-4 py-2 text-sm font-semibold transition',
+                accessFilter === 'sem_acesso'
+                  ? 'border-[#0B4F8A] bg-[#0B4F8A]/10 text-[#0B4F8A]'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+              ].join(' ')}
+            >
+              Sem acesso
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAccessFilter('com_acesso')}
+              className={[
+                'rounded-xl border px-4 py-2 text-sm font-semibold transition',
+                accessFilter === 'com_acesso'
+                  ? 'border-[#0B4F8A] bg-[#0B4F8A]/10 text-[#0B4F8A]'
+                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50',
+              ].join(' ')}
+            >
+              Com acesso
+            </button>
+
+            <div className="ml-auto text-xs text-slate-500">
+              {accessFilter === 'sem_acesso'
+                ? `${colabs.filter((c) => !hasAppAccess(c)).length} sem acesso`
+                : `${colabs.filter((c) => hasAppAccess(c)).length} com acesso`}
+            </div>
+          </div>
+
+          <div className="relative mt-4">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input
               value={colabSearch}
               onChange={(e) => setColabSearch(e.target.value)}
               placeholder="Pesquisar colaborador (nome/email/status)…"
-              className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                         focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-transparent focus:ring-2 focus:ring-[#0B4F8A]/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
           </div>
 
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div className="mt-3 grid max-h-[420px] grid-cols-1 gap-2 overflow-auto pr-1 md:grid-cols-2">
             {colabsFiltered.map((c) => {
               const active = c.id === selectedColabId;
               const access = hasAppAccess(c);
+
               return (
                 <button
                   key={c.id}
                   type="button"
                   onClick={() => setSelectedColabId(c.id)}
                   className={[
-                    'text-left p-3 rounded-2xl border transition',
+                    'text-left rounded-2xl border p-3 transition',
                     active
                       ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-950/40',
+                      : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-950/40',
                   ].join(' ')}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center overflow-hidden shrink-0">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/30">
                         {c.avatar_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={c.avatar_url} alt={colabDisplayName(c)} className="h-full w-full object-cover" />
                         ) : (
-                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">{initials(colabDisplayName(c))}</span>
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                            {initials(colabDisplayName(c))}
+                          </span>
                         )}
                       </div>
+
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{colabDisplayName(c)}</div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{safeStr(c.email)}</div>
+                        <div className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                          {colabDisplayName(c)}
+                        </div>
+                        <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                          {safeStr(c.email)}
+                        </div>
                       </div>
                     </div>
 
@@ -716,277 +702,418 @@ export function PermissoesAppTab() {
                 </button>
               );
             })}
+
+            {colabsFiltered.length === 0 && (
+              <div className="col-span-full py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                Nenhum colaborador encontrado
+              </div>
+            )}
           </div>
 
-          <div className="mt-4 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Selecionado</div>
-              {selectedColab ? (
-                hasAppAccess(selectedColab) ? <Badge variant="success">Com acesso</Badge> : <Badge variant="default">Sem acesso</Badge>
-              ) : (
-                <Badge variant="default">Selecione um</Badge>
-              )}
-            </div>
-
-            <div className="mt-3">
-              {selectedColab ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/30">
+            {!selectedColab ? (
+              <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                Selecione um colaborador
+              </div>
+            ) : (
+              <div className="space-y-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                    <div className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
                       {colabDisplayName(selectedColab)}
                     </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      {safeStr(selectedColab.email)} • {safeStr(selectedColab.categoria)}
+                    <div className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {safeStr(selectedColab.categoria)} • {safeStr(selectedColab.status)}
+                    </div>
+                  </div>
+
+                  {hasAppAccess(selectedColab) ? (
+                    <Badge variant="success">Com acesso</Badge>
+                  ) : (
+                    <Badge variant="default">Sem acesso</Badge>
+                  )}
+                </div>
+
+                {!hasAppAccess(selectedColab) ? (
+                  <>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          Email do login
+                        </label>
+                        <input
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                          placeholder="email@..."
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-transparent focus:ring-2 focus:ring-[#0B4F8A]/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          Senha temporária
+                        </label>
+                        <input
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          placeholder="mínimo 8 caracteres"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm focus:border-transparent focus:ring-2 focus:ring-[#0B4F8A]/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                        />
+                      </div>
                     </div>
 
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-700 dark:text-slate-200">
-                        Status: {safeStr(selectedColab.status)}
-                      </span>
-                      {hasAppAccess(selectedColab) && (
-                        <button
-                          type="button"
-                          onClick={() => copyToClipboard(String(selectedColab.user_id))}
-                          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-900/30"
-                          title="Copiar user_id"
-                        >
-                          <Copy size={14} />
-                          Copiar ID (técnico)
-                        </button>
-                      )}
-                    </div>
-
-                    {!hasAppAccess(selectedColab) && (
-                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                        Este colaborador está sem acesso. Você pode criar agora o acesso (convite ou senha temporária).
+                    {!String(loginEmail || '').trim() && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        Este colaborador precisa de email para criar acesso.
                       </div>
                     )}
-                  </div>
 
-                  <div className="flex flex-col gap-2 items-end">
-                    <Button
-                      variant="secondary"
-                      onClick={() => linkAccess('unlink')}
-                      disabled={!selectedColab || linking || !hasAppAccess(selectedColab)}
-                      title="Remove o acesso ao app (user_id = null)"
-                    >
-                      <Unlink2 size={16} className="mr-2" />
-                      {linking ? 'A remover…' : 'Remover acesso'}
-                    </Button>
+                    {!isActive(selectedColab) && (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                        Este colaborador está inativo/baixa. O ideal é não criar acesso.
+                      </div>
+                    )}
 
-                    <Button
-                      onClick={() => linkAccess('link')}
-                      disabled={!selectedColab || linking || hasAppAccess(selectedColab)}
-                      title="Criar o acesso para este colaborador"
-                    >
-                      <Link2 size={16} className="mr-2" />
-                      Criar acesso
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  Selecione um colaborador para gerir o acesso ao app
-                </div>
-              )}
-            </div>
+                    <div className="flex items-center justify-end">
+                      <Button
+                        onClick={createAccess}
+                        disabled={
+                          creating ||
+                          !String(loginEmail || '').trim() ||
+                          String(loginPassword || '').trim().length < 8 ||
+                          !isActive(selectedColab)
+                        }
+                      >
+                        <KeyRound size={16} className="mr-2" />
+                        {creating ? 'A criar…' : 'Criar login'}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      Este colaborador já tem acesso ao app.
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(String(selectedColab.user_id))}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/30"
+                      >
+                        <Copy size={14} />
+                        Copiar ID
+                      </button>
+
+                      <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+                        user_id: {String(selectedColab.user_id).slice(0, 8)}...
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-end">
+                      <Button variant="secondary" onClick={removeAccess} disabled={linking}>
+                        <Unlink2 size={16} className="mr-2" />
+                        {linking ? 'A remover…' : 'Remover acesso'}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </Card>
 
-        {/* ===== Encarregados por obra ===== */}
-        {/* ... (restante do seu código de encarregados fica IGUAL) */}
         <Card className={`p-5 ${cardBase}`}>
-          {/* (mantive exatamente como está no teu código original daqui pra baixo) */}
-          {/* ======= COLE AQUI O BLOCO “Gestão no App (Encarregados)” INTEIRO DO TEU ARQUIVO ORIGINAL ======= */}
-          {/* Para não estourar mensagem, não repliquei 100% aqui. */}
-        </Card>
-      </div>
-
-      {/* Nota operacional curta */}
-      <Card className={`p-5 ${cardBase}`}>
-        <div className="text-sm text-slate-700 dark:text-slate-200">
-          Operação recomendada: primeiro <span className="font-semibold">criar/ligar o acesso</span> (Auth + user_profiles + colaboradores.user_id), depois definir{' '}
-          <span className="font-semibold">encarregados por obra</span>.
-        </div>
-      </Card>
-
-      {/* ===== MODAL Criar Acesso ===== */}
-      {createOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => !creating && setCreateOpen(false)}
-          />
-
-          <div className="relative w-full max-w-xl rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-xl overflow-hidden">
-            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 flex items-center justify-center">
-                  <KeyRound size={18} className="text-slate-700 dark:text-slate-200" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Building2 size={16} className="text-slate-700 dark:text-slate-200" />
+              <div>
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Gestão no App (Encarregados)
                 </div>
-                <div>
-                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Criar acesso ao App</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Isto cria Auth + user_profiles + colaboradores.user_id.
-                  </div>
+                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  “Gestão” aparece quando o user está em <span className="font-semibold">obra_encarregados</span> (ativo).
                 </div>
               </div>
+            </div>
+            <Badge variant="info">Obras</Badge>
+          </div>
 
-              <button
-                type="button"
-                className="h-10 w-10 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-900/40"
-                onClick={() => !creating && setCreateOpen(false)}
-                title="Fechar"
-              >
-                <XIcon size={18} className="text-slate-700 dark:text-slate-200" />
-              </button>
+          <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  Selecionar obra
+                </div>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{obras.length}</span>
+              </div>
+
+              <div className="relative mt-3">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                <input
+                  value={obraSearch}
+                  onChange={(e) => setObraSearch(e.target.value)}
+                  placeholder="Pesquisar obra (nome/cliente/status)…"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-transparent focus:ring-2 focus:ring-[#0B4F8A]/30 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
+                />
+              </div>
+
+              <div className="mt-3 max-h-[360px] space-y-2 overflow-auto pr-1">
+                {obrasFiltered.map((o) => {
+                  const active = o.id === selectedObraId;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => setSelectedObraId(o.id)}
+                      className={[
+                        'w-full rounded-2xl border p-3 text-left transition',
+                        active
+                          ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/30 dark:hover:bg-slate-900/50',
+                      ].join(' ')}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                            {obraDisplayName(o)}
+                          </div>
+                          <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                            cliente: {safeStr(o.cliente)}
+                          </div>
+                        </div>
+                        <Badge variant="default">{safeStr(o.status)}</Badge>
+                      </div>
+                    </button>
+                  );
+                })}
+
+                {obrasFiltered.length === 0 && (
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Nenhuma obra
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="p-5 space-y-4">
-              {/* modo */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setCreateMode('invite')}
-                  disabled={creating}
-                  className={[
-                    'p-3 rounded-2xl border text-left',
-                    createMode === 'invite'
-                      ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900/30',
-                  ].join(' ')}
-                >
-                  <div className="flex items-center gap-2">
-                    <Mail size={16} />
-                    <div className="text-sm font-semibold">Convite por email</div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    Encarregados
                   </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Recomendado: colaborador define a própria senha.
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Obra: <span className="font-semibold">{selectedObra ? obraDisplayName(selectedObra) : '—'}</span>
                   </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setCreateMode('password')}
-                  disabled={creating}
-                  className={[
-                    'p-3 rounded-2xl border text-left',
-                    createMode === 'password'
-                      ? 'border-[#0B4F8A] bg-[#0B4F8A]/5 dark:bg-[#0B4F8A]/15'
-                      : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-900/30',
-                  ].join(' ')}
-                >
-                  <div className="flex items-center gap-2">
-                    <KeyRound size={16} />
-                    <div className="text-sm font-semibold">Senha temporária</div>
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                    Você define uma senha inicial (mín. 6).
-                  </div>
-                </button>
+                </div>
+                {loadingEnc ? (
+                  <Badge variant="default">A carregar…</Badge>
+                ) : (
+                  <Badge variant="info">{encarregados.length}</Badge>
+                )}
               </div>
 
-              {/* campos */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Nome completo</label>
-                  <Input
-                    value={createNome}
-                    onChange={(e: any) => setCreateNome(e.target.value)}
-                    placeholder="Ex.: Alexandre da Silva Pedro"
-                    disabled={creating}
-                  />
-                </div>
+              <div className="mt-4">
+                <label className="mb-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Adicionar encarregado
+                </label>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Email</label>
-                  <div className="relative">
-                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={createEmail}
-                      onChange={(e) => setCreateEmail(e.target.value)}
-                      placeholder="email@..."
-                      disabled={creating}
-                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Telefone (opcional)</label>
-                  <div className="relative">
-                    <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={createTelefone}
-                      onChange={(e) => setCreateTelefone(e.target.value)}
-                      placeholder="9xx xxx xxx"
-                      disabled={creating}
-                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Categoria (opcional)</label>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                   <input
-                    value={createCategoria}
-                    onChange={(e) => setCreateCategoria(e.target.value)}
-                    placeholder="Ex.: Canalizador"
-                    disabled={creating}
-                    className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                               focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
+                    value={encPersonQuery}
+                    onChange={(e) => {
+                      setEncPersonQuery(e.target.value);
+                      setEncPickerOpen(true);
+                      setEncSelectedUserId('');
+                    }}
+                    onFocus={() => setEncPickerOpen(true)}
+                    placeholder={selectedObraId ? 'Pesquisar colaborador (com acesso ao app)…' : 'Selecione uma obra primeiro'}
+                    disabled={!selectedObraId}
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm focus:border-transparent focus:ring-2 focus:ring-[#0B4F8A]/30 disabled:opacity-60 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
+
+                  {encPickerOpen && selectedObraId && (
+                    <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-950">
+                      <div className="max-h-[280px] overflow-auto">
+                        {encCandidates.map((c) => {
+                          const uid = String(c.user_id ?? '').trim();
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setEncSelectedUserId(uid);
+                                setEncPersonQuery(`${colabDisplayName(c)}${c.email ? ` • ${c.email}` : ''}`);
+                                setEncPickerOpen(false);
+                              }}
+                              className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900/40"
+                            >
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/30">
+                                {c.avatar_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={c.avatar_url} alt={colabDisplayName(c)} className="h-full w-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                    {initials(colabDisplayName(c))}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                  {colabDisplayName(c)}
+                                </div>
+                                <div className="truncate text-xs text-slate-500 dark:text-slate-400">
+                                  {safeStr(c.email)}
+                                </div>
+                              </div>
+
+                              <div className="ml-auto flex items-center gap-2">
+                                <Badge variant={isActive(c) ? 'success' : 'default'}>
+                                  {safeStr(c.status)}
+                                </Badge>
+                                <Badge variant="info">Com acesso</Badge>
+                              </div>
+                            </button>
+                          );
+                        })}
+
+                        {encCandidates.length === 0 && (
+                          <div className="px-3 py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+                            Nenhum colaborador com acesso ao app encontrado
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2 dark:border-slate-800">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          Apenas colaboradores com user_id ligado
+                        </span>
+                        <Button size="sm" variant="ghost" onClick={() => setEncPickerOpen(false)}>
+                          Fechar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Role (user_profiles)</label>
-                  <div className="relative">
-                    <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={createRole}
-                      onChange={(e) => setCreateRole(e.target.value)}
-                      placeholder="operacoes / admin / ..."
-                      disabled={creating}
-                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
+                <div className="mt-3 flex items-center justify-end">
+                  <Button onClick={addOrEnableEncarregado} disabled={!selectedObraId || savingEnc || !isUuid(encSelectedUserId)}>
+                    <Plus size={16} className="mr-2" />
+                    {savingEnc ? 'A guardar…' : 'Adicionar'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 max-h-[300px] space-y-2 overflow-auto pr-1">
+                {encarregados.map((e) => {
+                  const c = colabByUserId.get(String(e.encarregado_user_id).trim()) || null;
+                  const display = c ? colabDisplayName(c) : 'Utilizador sem perfil';
+                  const email = c?.email ? safeStr(c.email) : '—';
+
+                  return (
+                    <div
+                      key={e.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex items-center gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+                            {c?.avatar_url ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={c.avatar_url} alt={display} className="h-full w-full object-cover" />
+                            ) : c ? (
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                                {initials(display)}
+                              </span>
+                            ) : (
+                              <UserCircle2 size={18} className="text-slate-600 dark:text-slate-300" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                {display}
+                              </div>
+                              {e.ativo ? (
+                                <Badge variant="success" className="inline-flex items-center gap-1">
+                                  <CheckCircle2 size={14} /> Ativo
+                                </Badge>
+                              ) : (
+                                <Badge variant="default" className="inline-flex items-center gap-1">
+                                  <XCircle size={14} /> Inativo
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="truncate text-xs text-slate-500 dark:text-slate-400">{email}</div>
+
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(e.encarregado_user_id)}
+                                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-900/30"
+                                title="Copiar ID técnico"
+                              >
+                                <Copy size={14} />
+                                Copiar ID
+                              </button>
+
+                              {c && (
+                                <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
+                                  {safeStr(c.status)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0">
+                          <Button
+                            size="sm"
+                            variant={e.ativo ? 'secondary' : 'default'}
+                            onClick={() => setEncarregadoAtivo(e, !e.ativo)}
+                            title={e.ativo ? 'Desativar' : 'Ativar'}
+                          >
+                            {e.ativo ? 'Desativar' : 'Ativar'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!loadingEnc && selectedObraId && encarregados.length === 0 && (
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Nenhum encarregado nesta obra
                   </div>
-                </div>
+                )}
 
-                {createMode === 'password' && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-2">Senha temporária</label>
-                    <input
-                      value={createPassword}
-                      onChange={(e) => setCreatePassword(e.target.value)}
-                      placeholder="mínimo 6 caracteres"
-                      disabled={creating}
-                      className="w-full px-3 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm
-                                 focus:ring-2 focus:ring-[#0B4F8A]/30 focus:border-transparent dark:text-slate-100 dark:placeholder:text-slate-500"
-                    />
+                {!selectedObraId && (
+                  <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+                    Selecione uma obra para ver/definir encarregados
                   </div>
                 )}
               </div>
 
-              <div className="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30 text-xs text-slate-600 dark:text-slate-300">
-                Dica: use <span className="font-semibold">Convite</span> como padrão (você não precisa lidar com senha de ninguém).
+              <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                Regra do app: “Gestão” aparece quando existe registo em{' '}
+                <span className="font-semibold">obra_encarregados</span> com{' '}
+                <span className="font-semibold">encarregado_user_id = auth.uid()</span> e{' '}
+                <span className="font-semibold">ativo = true</span>.
               </div>
             </div>
-
-            <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={() => setCreateOpen(false)} disabled={creating}>
-                Cancelar
-              </Button>
-              <Button onClick={createAccess} disabled={creating}>
-                <Plus size={16} className="mr-2" />
-                {creating ? 'A criar…' : 'Criar'}
-              </Button>
-            </div>
           </div>
+        </Card>
+      </div>
+
+      <Card className={`p-5 ${cardBase}`}>
+        <div className="text-sm text-slate-700 dark:text-slate-200">
+          Fluxo recomendado: primeiro criar/remover o acesso ao app do colaborador, depois gerir encarregados por obra.
         </div>
-      )}
+      </Card>
     </div>
   );
 }

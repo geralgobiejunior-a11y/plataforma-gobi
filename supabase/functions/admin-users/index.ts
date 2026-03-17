@@ -56,8 +56,7 @@ Deno.serve(async (req) => {
 
     const jwt = authHeader ? extractJwt(authHeader) : "";
 
-    // LOGS (prova objetiva)
-    console.log("[admin-users] HIT version=2026-01-19-04");
+    console.log("[admin-users] HIT version=2026-03-16-01");
     console.log("[admin-users] host =", new URL(url).host);
     console.log("[admin-users] has_auth =", !!authHeader);
     console.log("[admin-users] auth_prefix =", (authHeader || "").slice(0, 20));
@@ -94,8 +93,6 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action || "").trim();
-
-    // ---- ACTIONS (mínimo para o tab funcionar) ----
 
     if (action === "list") {
       const perPage = 200;
@@ -160,7 +157,10 @@ Deno.serve(async (req) => {
         if (!password || password.length < 8) {
           return json({ error: "Password must be at least 8 characters" }, 400);
         }
-        const { data, error } = await adminClient.auth.admin.createUser({ email, password });
+        const { data, error } = await adminClient.auth.admin.createUser({
+          email,
+          password,
+        });
         if (error) return json({ error: error.message }, 500);
         userId = data?.user?.id ?? null;
       }
@@ -175,6 +175,124 @@ Deno.serve(async (req) => {
         );
 
       if (upErr) return json({ error: upErr.message }, 500);
+
+      return json({ ok: true, user_id: userId }, 200);
+    }
+
+    if (action === "create_colaborador_access") {
+      const colaboradorId = String(body?.colaborador_id || "").trim();
+      const email = String(body?.email || "").trim().toLowerCase();
+      const password = String(body?.password || "");
+      const nomeCompleto = String(body?.nome_completo || "").trim();
+      const categoria = body?.categoria ? String(body.categoria).trim() : null;
+      const idioma = String(body?.idioma || "pt").trim();
+      const role = String(body?.role || "operacoes").trim();
+
+      if (!colaboradorId) return json({ error: "Missing colaborador_id" }, 400);
+      if (!email || !email.includes("@")) return json({ error: "Invalid email" }, 400);
+      if (!password || password.length < 8) {
+        return json({ error: "Password must be at least 8 characters" }, 400);
+      }
+      if (!nomeCompleto) return json({ error: "Missing nome_completo" }, 400);
+
+      if (
+        role !== "owner" &&
+        role !== "admin" &&
+        role !== "operacoes" &&
+        role !== "financeiro"
+      ) {
+        return json({ error: "Invalid role" }, 400);
+      }
+
+      const { data: colaborador, error: colabErr } = await adminClient
+        .from("colaboradores")
+        .select("id,nome_completo,email,status,user_id,categoria")
+        .eq("id", colaboradorId)
+        .maybeSingle();
+
+      if (colabErr) return json({ error: colabErr.message }, 500);
+      if (!colaborador) return json({ error: "Colaborador not found" }, 404);
+
+      const status = String(colaborador.status || "").toLowerCase();
+      if (status !== "ativo") {
+        return json({ error: "Colaborador is not active" }, 400);
+      }
+
+      if (colaborador.user_id) {
+        return json({ error: "Colaborador already has access" }, 400);
+      }
+
+      let existingUserId: string | null = null;
+      {
+        let page = 1;
+        const perPage = 200;
+
+        while (true) {
+          const { data, error } = await adminClient.auth.admin.listUsers({ page, perPage });
+          if (error) return json({ error: error.message }, 500);
+
+          const users = data?.users || [];
+          const found = users.find(
+            (u: any) => String(u.email || "").trim().toLowerCase() === email
+          );
+
+          if (found) {
+            existingUserId = found.id;
+            break;
+          }
+
+          if (users.length < perPage) break;
+          page += 1;
+          if (page > 50) break;
+        }
+      }
+
+      let userId = existingUserId;
+
+      if (!userId) {
+        const { data, error } = await adminClient.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true,
+          user_metadata: {
+            nome_completo: nomeCompleto,
+          },
+        });
+
+        if (error) return json({ error: error.message }, 500);
+        userId = data?.user?.id ?? null;
+      }
+
+      if (!userId) return json({ error: "Failed to create auth user" }, 500);
+
+      const { error: profileErr } = await adminClient
+        .from("user_profiles")
+        .upsert(
+          {
+            user_id: userId,
+            email,
+            nome: nomeCompleto,
+            role,
+            is_active: true,
+            idioma,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+
+      if (profileErr) return json({ error: profileErr.message }, 500);
+
+      const { error: updateColabErr } = await adminClient
+        .from("colaboradores")
+        .update({
+          user_id: userId,
+          email,
+          categoria: categoria ?? colaborador.categoria ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", colaboradorId);
+
+      if (updateColabErr) return json({ error: updateColabErr.message }, 500);
 
       return json({ ok: true, user_id: userId }, 200);
     }
