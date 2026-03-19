@@ -1,4 +1,3 @@
-// src/components/configuracoes/permissoes/PermissoesAppTab.tsx
 import { useEffect, useMemo, useState } from 'react';
 import {
   Smartphone,
@@ -46,6 +45,16 @@ type ObraEncarregadoRow = {
   ativo: boolean;
   created_at?: string;
   updated_at?: string;
+};
+
+type AdminUsersResponse = {
+  ok?: boolean;
+  error?: string;
+  message?: string;
+  user_id?: string | null;
+  auth_user_id?: string | null;
+  colaborador_id?: string | null;
+  [key: string]: any;
 };
 
 const cardBase =
@@ -160,6 +169,61 @@ async function copyToClipboard(text: string) {
   }
 }
 
+async function invokeAdminUsers(body: Record<string, any>) {
+  const sessionRes = await supabase.auth.getSession();
+  const accessToken = sessionRes.data.session?.access_token ?? null;
+
+  const userRes = await supabase.auth.getUser();
+
+  console.log('[admin-users] env url =', import.meta.env.VITE_SUPABASE_URL);
+  console.log('[admin-users] session user =', sessionRes.data.session?.user);
+  console.log('[admin-users] getUser user =', userRes.data.user);
+  console.log('[admin-users] getUser error =', userRes.error);
+  console.log('[admin-users] accessToken exists =', !!accessToken);
+  console.log('[admin-users] accessToken length =', accessToken?.length ?? 0);
+  console.log(
+    '[admin-users] accessToken preview =',
+    accessToken ? `${accessToken.slice(0, 20)}...` : null
+  );
+  console.log('[admin-users] body =', body);
+
+  if (!accessToken) {
+    return {
+      data: null as AdminUsersResponse | null,
+      error: new Error('Sem sessão ativa no Supabase. Faça login novamente.'),
+    };
+  }
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+  const response = await fetch(`${supabaseUrl}/functions/v1/admin-users`, {
+    method: 'POST',
+   headers: {
+  'Content-Type': 'application/json',
+  Authorization: `Bearer ${accessToken}`,
+},
+    body: JSON.stringify(body),
+  });
+
+  let data: AdminUsersResponse | null = null;
+
+  try {
+    data = (await response.json()) as AdminUsersResponse;
+  } catch {
+    data = null;
+  }
+
+  console.log('[admin-users] raw fetch status =', response.status);
+  console.log('[admin-users] raw fetch ok =', response.ok);
+  console.log('[admin-users] raw fetch data =', data);
+
+  return {
+    data,
+    error: response.ok ? null : new Error(data?.error || `HTTP ${response.status}`),
+  };
+}
+
 export function PermissoesAppTab() {
   const [loading, setLoading] = useState(true);
 
@@ -225,7 +289,10 @@ export function PermissoesAppTab() {
   );
 
   const hasAppAccess = (c: ColaboradorRow | null) => !!c?.user_id && isUuid(String(c.user_id).trim());
-  const isActive = (c: ColaboradorRow | null) => String(c?.status ?? '').toLowerCase() === 'ativo';
+  const isActive = (c: ColaboradorRow | null) => {
+    const status = String(c?.status ?? '').trim().toLowerCase();
+    return status === 'ativo' || status === 'active';
+  };
 
   useEffect(() => {
     if (!selectedColab) {
@@ -281,11 +348,7 @@ export function PermissoesAppTab() {
   const encCandidates = useMemo(() => {
     const base = colabs
       .filter((c) => isUuid(String(c.user_id ?? '').trim()))
-      .filter(
-        (c) =>
-          String(c.status ?? '').toLowerCase() === 'ativo' ||
-          String(c.status ?? '').toLowerCase() === 'active'
-      );
+      .filter((c) => isActive(c));
 
     const q = encPersonQuery.trim().toLowerCase();
     if (!q) return base.slice(0, 10);
@@ -332,46 +395,52 @@ export function PermissoesAppTab() {
 
     setCreating(true);
     try {
-     const res = await supabase.functions.invoke('admin-users', {
-  body: {
-    action: 'create_colaborador_access',
-    colaborador_id: selectedColab.id,
-    mode: 'password',
-    email,
-    password,
-    nome_completo: nome,
-    telefone: null,
-    categoria: selectedColab.categoria ?? null,
-    role: 'operacoes',
-    idioma: 'pt',
-  },
-});
+      const requestBody = {
+        action: 'create_colaborador_access',
+        colaborador_id: selectedColab.id,
+        mode: 'password',
+        email,
+        password,
+        nome_completo: nome,
+        telefone: null,
+        categoria: selectedColab.categoria ?? null,
+        role: 'operacoes',
+        idioma: 'pt',
+      };
 
-      if (res.error) {
-        console.error(res.error);
-        toast.error(res.error.message || 'Falha ao criar acesso.');
+      console.log('[admin-users] request', requestBody);
+
+      const { data, error } = await invokeAdminUsers(requestBody);
+
+      if (error) {
+        console.error('[admin-users] invoke error', error);
+        console.error('[admin-users] response data', data);
+
+        const message =
+          data?.error ||
+          data?.message ||
+          (error as any)?.message ||
+          'Falha ao criar acesso.';
+
+        toast.error(message);
         return;
       }
 
-      const payload = res.data as any;
-
-      if (!payload?.ok) {
-        toast.error(payload?.error || 'Falha ao criar acesso.');
+      if (!data?.ok) {
+        console.error('[admin-users] invalid response payload', data);
+        toast.error(data?.error || data?.message || 'Falha ao criar acesso.');
         return;
       }
 
       toast.success('Login criado com sucesso.');
 
-      const reload = await selectColaboradoresSmart();
-      if (!reload.error) {
-        setColabs(reload.data);
-        const updated = reload.data.find((c) => c.id === selectedColab.id) ?? null;
-        if (updated) setSelectedColabId(updated.id);
-      }
+      await loadAll();
 
+      setSelectedColabId(selectedColab.id);
       setLoginPassword('');
+      setAccessFilter('com_acesso');
     } catch (e: any) {
-      console.error(e);
+      console.error('createAccess fatal:', e);
       toast.error(e?.message || 'Falha inesperada ao criar acesso.');
     } finally {
       setCreating(false);
@@ -409,13 +478,8 @@ export function PermissoesAppTab() {
 
       toast.success('Acesso removido.');
 
-      const reload = await selectColaboradoresSmart();
-      if (!reload.error) {
-        setColabs(reload.data);
-        const updated = reload.data.find((c) => c.id === selectedColab.id) ?? null;
-        if (updated) setSelectedColabId(updated.id);
-      }
-
+      await loadAll();
+      setSelectedColabId(selectedColab.id);
       setAccessFilter('sem_acesso');
     } finally {
       setLinking(false);
@@ -673,7 +737,6 @@ export function PermissoesAppTab() {
                     <div className="min-w-0 flex items-center gap-3">
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/30">
                         {c.avatar_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
                           <img src={c.avatar_url} alt={colabDisplayName(c)} className="h-full w-full object-cover" />
                         ) : (
                           <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
@@ -754,6 +817,7 @@ export function PermissoesAppTab() {
                           Senha temporária
                         </label>
                         <input
+                          type="password"
                           value={loginPassword}
                           onChange={(e) => setLoginPassword(e.target.value)}
                           placeholder="mínimo 8 caracteres"
@@ -951,7 +1015,6 @@ export function PermissoesAppTab() {
                             >
                               <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/30">
                                 {c.avatar_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
                                   <img src={c.avatar_url} alt={colabDisplayName(c)} className="h-full w-full object-cover" />
                                 ) : (
                                   <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
@@ -1021,7 +1084,6 @@ export function PermissoesAppTab() {
                         <div className="min-w-0 flex items-center gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
                             {c?.avatar_url ? (
-                              // eslint-disable-next-line @next/next/no-img-element
                               <img src={c.avatar_url} alt={display} className="h-full w-full object-cover" />
                             ) : c ? (
                               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
